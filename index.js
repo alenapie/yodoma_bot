@@ -240,10 +240,9 @@ bot.on("message:text", async (ctx) => {
 
     const explanation = await getWordExplanation(word);
 
-    await ctx.reply(
-      `**${word.toUpperCase()}** — ${explanation}\n\n(по версии GPT-4o mini)`,
-      { parse_mode: "Markdown" }
-    );
+    await ctx.reply(`**${word.toUpperCase()}** — ${explanation}`, {
+      parse_mode: "Markdown",
+    });
   } catch (err) {
     console.error("[EXPLAIN] Ошибка обработки:", err.message);
     await ctx.reply("Не получилось объяснить это слово 😔 Попробуй другое.");
