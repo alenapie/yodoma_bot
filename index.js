@@ -5,8 +5,7 @@ const TelegramBot = require("node-telegram-bot-api");
 // ──────────────────────────────────────────────
 // Используем node-fetch для CommonJS
 // ──────────────────────────────────────────────
-const fetch = (...args) =>
-  import("node-fetch").then(({ default: fetch }) => fetch(...args));
+const fetch = require("node-fetch-commonjs");
 
 // ──────────────────────────────────────────────
 // Проверка обязательных переменных
