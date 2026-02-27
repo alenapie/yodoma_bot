@@ -1,45 +1,39 @@
 require("dotenv").config();
 const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
-const OpenAI = require("openai");
+const fetch = require("node-fetch"); // Для обычных HTTP-запросов
 
-// ===== Переменные окружения =====
+// Переменные окружения
 const TOKEN = process.env.TELEGRAM_TOKEN;
-const OPENAI_KEY = process.env.OPENAI_API_KEY;
-const APP_URL = process.env.APP_URL; // Например, https://yodoma-bot.onrender.com
+const APP_URL = process.env.APP_URL;
+const AI_KEY = process.env.AI_MEDIATOR_KEY; // твой ключ с app.ai-mediator.ru
 
-if (!TOKEN || !OPENAI_KEY || !APP_URL) {
+if (!TOKEN || !APP_URL || !AI_KEY) {
   console.error(
-    "Не заданы переменные окружения: TELEGRAM_TOKEN, OPENAI_API_KEY или APP_URL"
+    "Не заданы переменные окружения: TELEGRAM_TOKEN, AI_MEDIATOR_KEY или APP_URL"
   );
   process.exit(1);
 }
 
-// ===== Клиент OpenAI =====
-const openai = new OpenAI({ apiKey: OPENAI_KEY });
-
-// ===== Настройка Express =====
+// Настройка Express
 const app = express();
 app.use(express.json());
 
-// ===== Инициализация бота без polling =====
+// Инициализация бота без polling
 const bot = new TelegramBot(TOKEN);
 
-// ===== Webhook endpoint для Telegram =====
-app.post(`/bot${TOKEN}`, async (req, res) => {
-  const update = req.body;
-
-  // Проверка, что пришло сообщение с текстом
-  if (
-    update.message &&
-    update.message.text &&
-    update.message.text === "/quiz"
-  ) {
-    const chatId = update.message.chat.id;
-
-    try {
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+// Функция генерации викторины через AI Mediator
+async function generateQuiz() {
+  const response = await fetch(
+    "https://app.ai-mediator.ru/api/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${AI_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini", // или модель, которая доступна в твоем тарифе
         messages: [
           {
             role: "system",
@@ -60,21 +54,23 @@ app.post(`/bot${TOKEN}`, async (req, res) => {
 `,
           },
         ],
-      });
+      }),
+    }
+  );
 
-      let quiz;
-      try {
-        quiz = JSON.parse(response.choices[0].message.content);
-      } catch (e) {
-        console.error(
-          "Ошибка парсинга ответа OpenAI:",
-          e,
-          response.choices[0].message.content
-        );
-        await bot.sendMessage(chatId, "Ошибка генерации вопроса 😢");
-        return res.sendStatus(200);
-      }
+  const data = await response.json();
+  return JSON.parse(data.choices[0].message.content);
+}
 
+// Webhook endpoint для Telegram
+app.post(`/bot${TOKEN}`, async (req, res) => {
+  const update = req.body;
+
+  if (update.message && update.message.text === "/quiz") {
+    const chatId = update.message.chat.id;
+
+    try {
+      const quiz = await generateQuiz();
       await bot.sendPoll(chatId, quiz.question, quiz.options, {
         type: "quiz",
         correct_option_id: quiz.correctIndex,
@@ -82,25 +78,17 @@ app.post(`/bot${TOKEN}`, async (req, res) => {
       });
     } catch (error) {
       console.error(error);
-      await bot.sendMessage(chatId, "Ошибка генерации вопроса 😢");
+      bot.sendMessage(chatId, "Ошибка генерации вопроса 😢");
     }
   }
 
   res.sendStatus(200);
 });
 
-// ===== Установка Webhook =====
-(async () => {
-  try {
-    await bot.deleteWebHook(); // Сбрасываем старый webhook
-    await bot.setWebHook(`${APP_URL}/bot${TOKEN}`);
-    console.log("Webhook установлен:", `${APP_URL}/bot${TOKEN}`);
-  } catch (err) {
-    console.error("Ошибка установки webhook:", err);
-  }
-})();
+// Установка Webhook
+bot.setWebHook(`${APP_URL}/bot${TOKEN}`);
 
-// ===== Запуск сервера =====
+// Запуск сервера
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server started on port ${PORT}`);
