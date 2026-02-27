@@ -1,7 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
-const fetch = require("node-fetch");
+import fetch from "node-fetch";
 
 // =====================
 // Переменные окружения
