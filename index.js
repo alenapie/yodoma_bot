@@ -27,26 +27,18 @@ app.use(express.json());
 const bot = new TelegramBot(TOKEN);
 
 // =====================
-// Генерация викторины
+// Функция генерации викторины
 // =====================
-const QUIZ_TOPICS = [
-  "химия",
-  "физика",
-  "математика",
-  "биология",
-  "история",
-  "география",
-  "литература"
-];
-
-async function generateQuiz(topic = null) {
-  // Если тема не указана — берем случайную
-  if (!topic) {
-    topic = QUIZ_TOPICS[Math.floor(Math.random() * QUIZ_TOPICS.length)];
-  }
-
-  const prompt = `Сгенерируй 1 вопрос викторины средней сложности по теме "${topic}".
-Формат строго:
+async function generateQuiz(topic = "") {
+  const userPrompt = topic
+    ? `Сгенерируй 1 вопрос викторины по теме "${topic}" средней сложности. Формат строго JSON:
+{
+  "question": "текст вопроса",
+  "options": ["A", "B", "C", "D"],
+  "correctIndex": 1,
+  "explanation": "пояснение"
+}`
+    : `Сгенерируй 1 случайный вопрос викторины средней сложности. Формат строго JSON:
 {
   "question": "текст вопроса",
   "options": ["A", "B", "C", "D"],
@@ -54,44 +46,32 @@ async function generateQuiz(topic = null) {
   "explanation": "пояснение"
 }`;
 
-  const response = await fetch("https://api.ai-mediator.ru/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${AI_MEDIATOR_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      temperature: 0.9, // повышаем случайность
-      messages: [
-        { role: "system", content: "Ты создаешь викторины. Отвечай строго JSON без лишнего текста." },
-        { role: "user", content: prompt }
-      ]
-    }),
-  });
+  const response = await fetch(
+    "https://api.ai-mediator.ru/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${AI_MEDIATOR_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        temperature: 0.7,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Ты создаешь викторины. Отвечай строго валидным JSON без лишнего текста.",
+          },
+          {
+            role: "user",
+            content: userPrompt,
+          },
+        ],
+      }),
+    }
+  );
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("AI Mediator HTTP Error:", errorText);
-    throw new Error("Ошибка ответа AI Mediator");
-  }
-
-  const data = await response.json();
-
-  if (!data.choices || !data.choices[0]) {
-    console.error("Некорректный ответ AI:", data);
-    throw new Error("AI вернул неожиданный формат");
-  }
-
-  try {
-    return JSON.parse(data.choices[0].message.content);
-  } catch (err) {
-    console.error("Ошибка парсинга JSON:", data.choices[0].message.content);
-    throw new Error("AI вернул невалидный JSON");
-  }
-}
-
-  // Проверка HTTP ошибки
   if (!response.ok) {
     const errorText = await response.text();
     console.error("❌ AI Mediator HTTP Error:", errorText);
@@ -101,12 +81,11 @@ async function generateQuiz(topic = null) {
   const data = await response.json();
 
   if (!data.choices || !data.choices[0]) {
-    console.error("❌ Некорректный ответ:", data);
+    console.error("❌ Некорректный ответ AI:", data);
     throw new Error("AI вернул неожиданный формат");
   }
 
   const content = data.choices[0].message.content;
-
   try {
     return JSON.parse(content);
   } catch (err) {
@@ -116,7 +95,7 @@ async function generateQuiz(topic = null) {
 }
 
 // =====================
-// Webhook endpoint
+// Webhook endpoint для Telegram
 // =====================
 app.post(`/bot${TOKEN}`, async (req, res) => {
   const update = req.body;
@@ -124,9 +103,9 @@ app.post(`/bot${TOKEN}`, async (req, res) => {
   if (update.message && update.message.text.startsWith("/quiz")) {
     const chatId = update.message.chat.id;
 
-    // Разбираем тему из команды
-    const args = update.message.text.split(" ");
-    const topic = args.length > 1 ? args.slice(1).join(" ") : null;
+    // Разбираем аргумент после /quiz
+    const parts = update.message.text.split(" ");
+    const topic = parts.slice(1).join(" ").trim(); // пусто, если нет темы
 
     try {
       const quiz = await generateQuiz(topic);
@@ -151,12 +130,8 @@ app.post(`/bot${TOKEN}`, async (req, res) => {
 // =====================
 bot
   .setWebHook(`${APP_URL}/bot${TOKEN}`)
-  .then(() => {
-    console.log(`✅ Webhook установлен: ${APP_URL}/bot${TOKEN}`);
-  })
-  .catch((err) => {
-    console.error("❌ Ошибка установки webhook:", err.message);
-  });
+  .then(() => console.log(`✅ Webhook установлен: ${APP_URL}/bot${TOKEN}`))
+  .catch((err) => console.error("❌ Ошибка установки webhook:", err.message));
 
 // =====================
 // Запуск сервера
