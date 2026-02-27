@@ -1,3 +1,5 @@
+global.fetch = require("node-fetch").default;
+
 // index.js
 
 require("dotenv").config();
