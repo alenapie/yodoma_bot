@@ -34,7 +34,7 @@ app.use(express.json());
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: false });
 
 // ──────────────────────────────────────────────
-//      Генерация вопроса (Claude-3-7-sonnet)
+//          Разрешённые темы для случайного вопроса
 // ──────────────────────────────────────────────
 const allowedTopics = [
   "история",
@@ -60,6 +60,9 @@ const allowedTopics = [
   "праздники",
 ];
 
+// ──────────────────────────────────────────────
+//      Генерация вопроса (Claude-3-7-sonnet)
+// ──────────────────────────────────────────────
 async function generateQuiz(topic = "") {
   const isRandom = !topic.trim();
 
@@ -154,7 +157,6 @@ app.post(`/bot${process.env.TELEGRAM_TOKEN}`, async (req, res) => {
   try {
     console.log("[WEBHOOK] /quiz от", chatId, "тема:", topic || "случайная");
 
-    // Отправляем сообщение "генерация" и не ждём завершения webhook
     const loadingMsg = await bot.sendMessage(chatId, "Генерирую вопрос... ⏳");
 
     const quiz = await generateQuiz(topic);
@@ -200,10 +202,15 @@ setInterval(() => {
 //               Установка webhook
 // ──────────────────────────────────────────────
 async function установитьWebhook() {
-  const url = `${process.env.APP_URL}/bot${process.env.TELEGRAM_TOKEN}`;
   try {
-    await bot.setWebHook(url);
-    console.log(`Webhook успешно установлен → ${url}`);
+    await bot.deleteWebHook(); // на всякий случай удаляем старый
+    await bot.setWebHook(
+      `${process.env.APP_URL}/bot${process.env.TELEGRAM_TOKEN}`
+    );
+    console.log(
+      "Webhook установлен:",
+      `${process.env.APP_URL}/bot${process.env.TELEGRAM_TOKEN}`
+    );
   } catch (err) {
     console.error("Ошибка установки webhook:", err.message);
   }
@@ -215,6 +222,7 @@ async function установитьWebhook() {
 //                   Запуск сервера
 // ──────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
+console.log("PORT из env:", process.env.PORT);
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Сервер запущен на порту ${PORT} (0.0.0.0)`);
