@@ -79,6 +79,8 @@ async function generateQuiz(topic = "") {
   }
 
   try {
+    console.log("[GENERATE] Запущена генерация, тема:", topic || "случайная");
+
     const response = await fetch(
       "https://api.ai-mediator.ru/v1/chat/completions",
       {
@@ -153,7 +155,10 @@ app.post(`/bot${process.env.TELEGRAM_TOKEN}`, async (req, res) => {
   const topic = text.slice(5).trim();
 
   try {
+    console.log("[WEBHOOK] /quiz от", chatId, "тема:", topic || "случайная");
+
     const loadingMsg = await bot.sendMessage(chatId, "Генерирую вопрос... ⏳");
+    console.log("[WEBHOOK] Loading отправлен");
 
     const quiz = await generateQuiz(topic);
 
@@ -164,10 +169,11 @@ app.post(`/bot${process.env.TELEGRAM_TOKEN}`, async (req, res) => {
       is_anonymous: false,
       protects_content: false,
     });
+    console.log("[WEBHOOK] Опрос отправлен");
 
     bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
   } catch (err) {
-    console.error("[Webhook] Ошибка:", err.message);
+    console.error("[WEBHOOK] Ошибка:", err.message);
     bot
       .sendMessage(chatId, "Не удалось создать вопрос 😔\nПопробуй позже.")
       .catch(() => {});
@@ -175,10 +181,10 @@ app.post(`/bot${process.env.TELEGRAM_TOKEN}`, async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
-//           Health-check для Render
+//   Простые GET-эндпоинты для Render (чтобы статус был Live)
 // ──────────────────────────────────────────────
 app.get("/", (req, res) => {
-  res.send("Бот работает (webhook-режим)");
+  res.send("Бот на webhook работает. Всё в порядке!");
 });
 
 app.get("/health", (req, res) => {
@@ -187,6 +193,11 @@ app.get("/health", (req, res) => {
     uptime: Math.floor(process.uptime() / 60) + " минут",
   });
 });
+
+// Heartbeat для логов (чтобы Render видел активность)
+setInterval(() => {
+  console.log(`Бот жив | uptime ${Math.floor(process.uptime() / 60)} мин`);
+}, 50000);
 
 // ──────────────────────────────────────────────
 //               Установка webhook
@@ -211,10 +222,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Сервер запущен на порту ${PORT} (0.0.0.0)`);
 });
-
-// Heartbeat, чтобы Render видел активность
-setInterval(() => {
-  console.log(
-    `Сердцебиение: бот жив | uptime ${Math.floor(process.uptime() / 60)} мин`
-  );
-}, 55000);
