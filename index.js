@@ -1,48 +1,58 @@
 require("dotenv").config();
 const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
-const fetch = require("node-fetch"); // Для работы с AI Mediator
+const fetch = require("node-fetch");
 
+// =====================
 // Переменные окружения
+// =====================
 const TOKEN = process.env.TELEGRAM_TOKEN;
 const AI_MEDIATOR_KEY = process.env.AI_MEDIATOR_API_KEY;
 const APP_URL = process.env.APP_URL;
 
 if (!TOKEN || !AI_MEDIATOR_KEY || !APP_URL) {
-  console.error(
-    "Не заданы переменные окружения: TELEGRAM_TOKEN, AI_MEDIATOR_API_KEY или APP_URL"
-  );
+  console.error("❌ Не заданы TELEGRAM_TOKEN, AI_MEDIATOR_API_KEY или APP_URL");
   process.exit(1);
 }
 
-// Настройка Express
+// =====================
+// Express
+// =====================
 const app = express();
 app.use(express.json());
 
-// Инициализация бота без polling
+// =====================
+// Telegram bot (без polling)
+// =====================
 const bot = new TelegramBot(TOKEN);
 
-// Функция генерации викторины через AI Mediator
+// =====================
+// Генерация викторины
+// =====================
 async function generateQuiz() {
-  const res = await fetch("https://api.ai-mediator.ru/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${AI_MEDIATOR_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "Ты создаешь викторины. Отвечай строго JSON без лишнего текста.",
-        },
-        {
-          role: "user",
-          content: `
+  const response = await fetch(
+    "https://api.ai-mediator.ru/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${AI_MEDIATOR_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        temperature: 0.7,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Ты создаешь викторины. Отвечай строго валидным JSON без лишнего текста.",
+          },
+          {
+            role: "user",
+            content: `
 Сгенерируй 1 вопрос викторины средней сложности.
-Формат:
+
+Формат строго:
 {
   "question": "текст вопроса",
   "options": ["A", "B", "C", "D"],
@@ -50,20 +60,42 @@ async function generateQuiz() {
   "explanation": "пояснение"
 }
 `,
-        },
-      ],
-    }),
-  });
+          },
+        ],
+      }),
+    }
+  );
 
-  const data = await res.json();
-  return JSON.parse(data.choices[0].message.content);
+  // 🔴 Проверка HTTP ошибки
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("❌ AI Mediator HTTP Error:", errorText);
+    throw new Error("Ошибка ответа AI Mediator");
+  }
+
+  const data = await response.json();
+
+  if (!data.choices || !data.choices[0]) {
+    console.error("❌ Некорректный ответ:", data);
+    throw new Error("AI вернул неожиданный формат");
+  }
+
+  const content = data.choices[0].message.content;
+
+  try {
+    return JSON.parse(content);
+  } catch (err) {
+    console.error("❌ Ошибка парсинга JSON:", content);
+    throw new Error("AI вернул невалидный JSON");
+  }
 }
 
-// Webhook endpoint для Telegram
+// =====================
+// Webhook endpoint
+// =====================
 app.post(`/bot${TOKEN}`, async (req, res) => {
   const update = req.body;
 
-  // Обработка команды /quiz
   if (update.message && update.message.text === "/quiz") {
     const chatId = update.message.chat.id;
 
@@ -74,22 +106,33 @@ app.post(`/bot${TOKEN}`, async (req, res) => {
         type: "quiz",
         correct_option_id: quiz.correctIndex,
         explanation: quiz.explanation,
+        is_anonymous: false,
       });
     } catch (error) {
-      console.error(error);
-      bot.sendMessage(chatId, "Ошибка генерации вопроса 😢");
+      console.error("❌ Ошибка генерации:", error.message);
+      await bot.sendMessage(chatId, "Ошибка генерации вопроса 😢");
     }
   }
 
   res.sendStatus(200);
 });
 
+// =====================
 // Установка Webhook
-bot.setWebHook(`${APP_URL}/bot${TOKEN}`);
+// =====================
+bot
+  .setWebHook(`${APP_URL}/bot${TOKEN}`)
+  .then(() => {
+    console.log(`✅ Webhook установлен: ${APP_URL}/bot${TOKEN}`);
+  })
+  .catch((err) => {
+    console.error("❌ Ошибка установки webhook:", err.message);
+  });
 
+// =====================
 // Запуск сервера
+// =====================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server started on port ${PORT}`);
-  console.log(`Webhook установлен: ${APP_URL}/bot${TOKEN}`);
+  console.log(`🚀 Server started on port ${PORT}`);
 });
