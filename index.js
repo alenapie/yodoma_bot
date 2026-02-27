@@ -3,10 +3,10 @@ const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
 const OpenAI = require("openai");
 
-// Переменные окружения
+// ===== Переменные окружения =====
 const TOKEN = process.env.TELEGRAM_TOKEN;
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
-const APP_URL = process.env.APP_URL;
+const APP_URL = process.env.APP_URL; // Например, https://yodoma-bot.onrender.com
 
 if (!TOKEN || !OPENAI_KEY || !APP_URL) {
   console.error(
@@ -15,22 +15,26 @@ if (!TOKEN || !OPENAI_KEY || !APP_URL) {
   process.exit(1);
 }
 
-// Клиент OpenAI
+// ===== Клиент OpenAI =====
 const openai = new OpenAI({ apiKey: OPENAI_KEY });
 
-// Настройка Express
+// ===== Настройка Express =====
 const app = express();
 app.use(express.json());
 
-// Инициализация бота без polling
+// ===== Инициализация бота без polling =====
 const bot = new TelegramBot(TOKEN);
 
-// Webhook endpoint для Telegram
+// ===== Webhook endpoint для Telegram =====
 app.post(`/bot${TOKEN}`, async (req, res) => {
   const update = req.body;
 
-  // Обработка команды /quiz
-  if (update.message && update.message.text === "/quiz") {
+  // Проверка, что пришло сообщение с текстом
+  if (
+    update.message &&
+    update.message.text &&
+    update.message.text === "/quiz"
+  ) {
     const chatId = update.message.chat.id;
 
     try {
@@ -58,7 +62,18 @@ app.post(`/bot${TOKEN}`, async (req, res) => {
         ],
       });
 
-      const quiz = JSON.parse(response.choices[0].message.content);
+      let quiz;
+      try {
+        quiz = JSON.parse(response.choices[0].message.content);
+      } catch (e) {
+        console.error(
+          "Ошибка парсинга ответа OpenAI:",
+          e,
+          response.choices[0].message.content
+        );
+        await bot.sendMessage(chatId, "Ошибка генерации вопроса 😢");
+        return res.sendStatus(200);
+      }
 
       await bot.sendPoll(chatId, quiz.question, quiz.options, {
         type: "quiz",
@@ -67,17 +82,25 @@ app.post(`/bot${TOKEN}`, async (req, res) => {
       });
     } catch (error) {
       console.error(error);
-      bot.sendMessage(chatId, "Ошибка генерации вопроса 😢");
+      await bot.sendMessage(chatId, "Ошибка генерации вопроса 😢");
     }
   }
 
   res.sendStatus(200);
 });
 
-// Установка Webhook
-bot.setWebHook(`${APP_URL}/bot${TOKEN}`);
+// ===== Установка Webhook =====
+(async () => {
+  try {
+    await bot.deleteWebHook(); // Сбрасываем старый webhook
+    await bot.setWebHook(`${APP_URL}/bot${TOKEN}`);
+    console.log("Webhook установлен:", `${APP_URL}/bot${TOKEN}`);
+  } catch (err) {
+    console.error("Ошибка установки webhook:", err);
+  }
+})();
 
-// Запуск сервера
+// ===== Запуск сервера =====
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server started on port ${PORT}`);
