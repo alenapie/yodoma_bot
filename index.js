@@ -29,7 +29,9 @@ const bot = new TelegramBot(TOKEN);
 // =====================
 // Генерация викторины
 // =====================
-async function generateQuiz() {
+async function generateQuiz(topic = null) {
+  const topicText = topic ? ` по теме "${topic}"` : "";
+
   const response = await fetch(
     "https://api.ai-mediator.ru/v1/chat/completions",
     {
@@ -50,7 +52,7 @@ async function generateQuiz() {
           {
             role: "user",
             content: `
-Сгенерируй 1 вопрос викторины средней сложности.
+Сгенерируй 1 вопрос викторины средней сложности${topicText}.
 
 Формат строго:
 {
@@ -59,14 +61,14 @@ async function generateQuiz() {
   "correctIndex": 1,
   "explanation": "пояснение"
 }
-`,
+        `,
           },
         ],
       }),
     }
   );
 
-  // 🔴 Проверка HTTP ошибки
+  // Проверка HTTP ошибки
   if (!response.ok) {
     const errorText = await response.text();
     console.error("❌ AI Mediator HTTP Error:", errorText);
@@ -96,11 +98,15 @@ async function generateQuiz() {
 app.post(`/bot${TOKEN}`, async (req, res) => {
   const update = req.body;
 
-  if (update.message && update.message.text === "/quiz") {
+  if (update.message && update.message.text.startsWith("/quiz")) {
     const chatId = update.message.chat.id;
 
+    // Разбираем тему из команды
+    const args = update.message.text.split(" ");
+    const topic = args.length > 1 ? args.slice(1).join(" ") : null;
+
     try {
-      const quiz = await generateQuiz();
+      const quiz = await generateQuiz(topic);
 
       await bot.sendPoll(chatId, quiz.question, quiz.options, {
         type: "quiz",
