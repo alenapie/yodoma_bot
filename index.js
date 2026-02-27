@@ -88,7 +88,7 @@ async function generateQuiz(topic = "") {
     const response = await axios.post(
       "https://api.ai-mediator.ru/v1/chat/completions",
       {
-        model: "claude-3-7-sonnet-20250219",
+        model: "gpt-4o-mini",
         temperature: 0.5,
         max_tokens: 700,
         messages: [
