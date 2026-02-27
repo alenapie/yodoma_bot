@@ -73,7 +73,7 @@ async function generateQuiz(topic = "") {
           Authorization: `Bearer ${AI_MEDIATOR_KEY}`,
         },
         body: JSON.stringify({
-          model: "gpt-4o", // можно попробовать "gpt-4o" или "claude-3-5-sonnet"
+          model: "gpt-5-mini", // можно попробовать "gpt-4o" или "claude-3-5-sonnet"
           temperature: 0.75,
           max_tokens: 600,
           messages: [
