@@ -29,44 +29,67 @@ const bot = new TelegramBot(TOKEN);
 // =====================
 // Генерация викторины
 // =====================
+const QUIZ_TOPICS = [
+  "химия",
+  "физика",
+  "математика",
+  "биология",
+  "история",
+  "география",
+  "литература"
+];
+
 async function generateQuiz(topic = null) {
-  const topicText = topic ? ` по теме "${topic}"` : "";
+  // Если тема не указана — берем случайную
+  if (!topic) {
+    topic = QUIZ_TOPICS[Math.floor(Math.random() * QUIZ_TOPICS.length)];
+  }
 
-  const response = await fetch(
-    "https://api.ai-mediator.ru/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${AI_MEDIATOR_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        temperature: 0.7,
-        messages: [
-          {
-            role: "system",
-            content:
-              "Ты создаешь викторины. Отвечай строго валидным JSON без лишнего текста.",
-          },
-          {
-            role: "user",
-            content: `
-Сгенерируй 1 вопрос викторины средней сложности${topicText}.
-
+  const prompt = `Сгенерируй 1 вопрос викторины средней сложности по теме "${topic}".
 Формат строго:
 {
   "question": "текст вопроса",
   "options": ["A", "B", "C", "D"],
   "correctIndex": 1,
   "explanation": "пояснение"
+}`;
+
+  const response = await fetch("https://api.ai-mediator.ru/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${AI_MEDIATOR_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      temperature: 0.9, // повышаем случайность
+      messages: [
+        { role: "system", content: "Ты создаешь викторины. Отвечай строго JSON без лишнего текста." },
+        { role: "user", content: prompt }
+      ]
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("AI Mediator HTTP Error:", errorText);
+    throw new Error("Ошибка ответа AI Mediator");
+  }
+
+  const data = await response.json();
+
+  if (!data.choices || !data.choices[0]) {
+    console.error("Некорректный ответ AI:", data);
+    throw new Error("AI вернул неожиданный формат");
+  }
+
+  try {
+    return JSON.parse(data.choices[0].message.content);
+  } catch (err) {
+    console.error("Ошибка парсинга JSON:", data.choices[0].message.content);
+    throw new Error("AI вернул невалидный JSON");
+  }
 }
-        `,
-          },
-        ],
-      }),
-    }
-  );
 
   // Проверка HTTP ошибки
   if (!response.ok) {
