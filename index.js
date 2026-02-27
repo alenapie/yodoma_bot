@@ -108,7 +108,7 @@ async function generateQuiz(topic = "") {
     const data = await response.json();
 
     console.log("[AI] Реальная модель:", data.model || "не указано");
-    // console.log("[AI] Полный ответ:", JSON.stringify(data, null, 2));  // раскомментируй для полной отладки
+    console.log("[AI] Полный ответ:", JSON.stringify(data, null, 2)); // раскомментируй для полной отладки
 
     let content = data.choices?.[0]?.message?.content?.trim() || "";
 
