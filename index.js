@@ -1,11 +1,9 @@
+// index.js
+
 require("dotenv").config();
 const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
-
-// ──────────────────────────────────────────────
-// Используем node-fetch для CommonJS
-// ──────────────────────────────────────────────
-const fetch = require("node-fetch-commonjs");
+const axios = require("axios");
 
 // ──────────────────────────────────────────────
 // Проверка обязательных переменных
@@ -30,7 +28,7 @@ if (
 }
 
 // ──────────────────────────────────────────────
-// Инициализация
+// Инициализация Express и Telegram Bot
 // ──────────────────────────────────────────────
 const app = express();
 app.use(express.json());
@@ -65,7 +63,7 @@ const allowedTopics = [
 ];
 
 // ──────────────────────────────────────────────
-// Генерация вопроса
+// Генерация вопроса через axios
 // ──────────────────────────────────────────────
 async function generateQuiz(topic = "") {
   const isRandom = !topic.trim();
@@ -89,33 +87,26 @@ async function generateQuiz(topic = "") {
   try {
     console.log("[GENERATE] Запущена генерация, тема:", topic);
 
-    const response = await fetch(
+    const response = await axios.post(
       "https://api.ai-mediator.ru/v1/chat/completions",
       {
-        method: "POST",
+        model: "claude-3-7-sonnet-20250219",
+        temperature: 0.5,
+        max_tokens: 700,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      },
+      {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
         },
-        body: JSON.stringify({
-          model: "claude-3-7-sonnet-20250219",
-          temperature: 0.5,
-          max_tokens: 700,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-        }),
       }
     );
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Ошибка API: ${response.status} — ${errText}`);
-    }
-
-    const data = await response.json();
-    let content = data.choices?.[0]?.message?.content?.trim() || "";
+    let content = response.data.choices?.[0]?.message?.content?.trim() || "";
 
     content = content
       .replace(/^```(?:json)?\s*/i, "")
