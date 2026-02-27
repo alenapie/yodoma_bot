@@ -36,50 +36,53 @@ const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: false });
 // ──────────────────────────────────────────────
 //      Генерация вопроса (Claude-3-7-sonnet)
 // ──────────────────────────────────────────────
+const allowedTopics = [
+  "история",
+  "география",
+  "страны",
+  "столицы",
+  "животные",
+  "растения",
+  "еда",
+  "кухни мира",
+  "спорт",
+  "музыка",
+  "кино",
+  "сериалы",
+  "литература",
+  "искусство",
+  "знаменитости",
+  "психология",
+  "мода",
+  "автомобили",
+  "путешествия",
+  "традиции",
+  "праздники",
+];
+
 async function generateQuiz(topic = "") {
   const isRandom = !topic.trim();
 
-  const systemPrompt = `Ты — генератор вопросов для викторин.
-Отвечай ТОЛЬКО одним валидным JSON-объектом.
-Никакого текста вне JSON, никаких ``json, никаких пояснений.
-Нарушение = критическая ошибка.`;
-
-  let userPrompt;
-
   if (isRandom) {
-    userPrompt = `Сгенерируй ровно ОДИН вопрос викторины средней сложности на случайную тему.
-
-Строго запрещено:
-- химия, периодическая таблица, элементы, атомные номера
-- физика, формулы, законы
-- математика, уравнения
-- программирование, алгоритмы
-
-Выбирай темы: история, география, страны, столицы, животные, растения, еда, кухни мира, спорт, музыка, кино, сериалы, литература, искусство, знаменитости, психология, мода, автомобили, путешествия, традиции, праздники.
-
-Формат строго JSON:
-{
-  "question": "текст вопроса",
-  "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-  "correctIndex": число от 0 до 3,
-  "explanation": "короткое объяснение"
-}`;
-  } else {
-    userPrompt = `Сгенерируй ровно ОДИН вопрос викторины строго по теме "${topic}".
-Нельзя отклоняться от темы.
-Средняя сложность.
-
-Формат строго JSON:
-{
-  "question": "текст вопроса",
-  "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-  "correctIndex": число от 0 до 3,
-  "explanation": "короткое объяснение"
-}`;
+    topic = allowedTopics[Math.floor(Math.random() * allowedTopics.length)];
   }
 
+  const systemPrompt = `Ты — генератор вопросов для викторин.
+Отвечай ТОЛЬКО одним валидным JSON-объектом.
+Никакого текста вне JSON.
+Никогда не используй темы: химия, физика, математика, программирование.`;
+
+  const userPrompt = `Сгенерируй ровно ОДИН вопрос викторины средней сложности строго по теме "${topic}".
+Формат строго JSON:
+{
+  "question": "текст вопроса",
+  "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+  "correctIndex": число от 0 до 3,
+  "explanation": "короткое объяснение"
+}`;
+
   try {
-    console.log("[GENERATE] Запущена генерация, тема:", topic || "случайная");
+    console.log("[GENERATE] Запущена генерация, тема:", topic);
 
     const response = await fetch(
       "https://api.ai-mediator.ru/v1/chat/completions",
@@ -107,9 +110,6 @@ async function generateQuiz(topic = "") {
     }
 
     const data = await response.json();
-
-    console.log("[AI] Реальная модель:", data.model || "не указано в ответе");
-
     let content = data.choices?.[0]?.message?.content?.trim() || "";
 
     content = content
@@ -142,13 +142,10 @@ async function generateQuiz(topic = "") {
 //               Webhook для Telegram
 // ──────────────────────────────────────────────
 app.post(`/bot${process.env.TELEGRAM_TOKEN}`, async (req, res) => {
-  res.sendStatus(200);
+  res.sendStatus(200); // сразу отвечаем Telegram
 
   const update = req.body;
-
-  if (!update?.message?.text?.startsWith("/quiz")) {
-    return;
-  }
+  if (!update?.message?.text?.startsWith("/quiz")) return;
 
   const chatId = update.message.chat.id;
   const text = update.message.text.trim();
@@ -157,8 +154,8 @@ app.post(`/bot${process.env.TELEGRAM_TOKEN}`, async (req, res) => {
   try {
     console.log("[WEBHOOK] /quiz от", chatId, "тема:", topic || "случайная");
 
+    // Отправляем сообщение "генерация" и не ждём завершения webhook
     const loadingMsg = await bot.sendMessage(chatId, "Генерирую вопрос... ⏳");
-    console.log("[WEBHOOK] Loading отправлен");
 
     const quiz = await generateQuiz(topic);
 
@@ -169,9 +166,9 @@ app.post(`/bot${process.env.TELEGRAM_TOKEN}`, async (req, res) => {
       is_anonymous: false,
       protects_content: false,
     });
-    console.log("[WEBHOOK] Опрос отправлен");
 
-    bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+    await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+    console.log("[WEBHOOK] Опрос отправлен");
   } catch (err) {
     console.error("[WEBHOOK] Ошибка:", err.message);
     bot
@@ -181,7 +178,7 @@ app.post(`/bot${process.env.TELEGRAM_TOKEN}`, async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
-//   Простые GET-эндпоинты для Render (чтобы статус был Live)
+//   Простые GET-эндпоинты для Render
 // ──────────────────────────────────────────────
 app.get("/", (req, res) => {
   res.send("Бот на webhook работает. Всё в порядке!");
@@ -194,7 +191,7 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Heartbeat для логов (чтобы Render видел активность)
+// Heartbeat для логов
 setInterval(() => {
   console.log(`Бот жив | uptime ${Math.floor(process.uptime() / 60)} мин`);
 }, 50000);
