@@ -1,10 +1,6 @@
-global.fetch = require("node-fetch").default;
-
-// index.js
-
 require("dotenv").config();
 const express = require("express");
-const TelegramBot = require("node-telegram-bot-api");
+const { Bot, webhookCallback } = require("grammy");
 const axios = require("axios");
 
 // ──────────────────────────────────────────────
@@ -30,15 +26,15 @@ if (
 }
 
 // ──────────────────────────────────────────────
-// Инициализация Express и Telegram Bot
+// Инициализация Express и grammY Bot
 // ──────────────────────────────────────────────
 const app = express();
 app.use(express.json());
 
-const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: false });
+const bot = new Bot(process.env.TELEGRAM_TOKEN);
 
 // ──────────────────────────────────────────────
-// Разрешённые темы для случайного вопроса
+// Разрешённые темы
 // ──────────────────────────────────────────────
 const allowedTopics = [
   "история",
@@ -65,7 +61,7 @@ const allowedTopics = [
 ];
 
 // ──────────────────────────────────────────────
-// Генерация вопроса через axios
+// Генерация вопроса (без изменений)
 // ──────────────────────────────────────────────
 async function generateQuiz(topic = "") {
   const isRandom = !topic.trim();
@@ -109,7 +105,6 @@ async function generateQuiz(topic = "") {
     );
 
     let content = response.data.choices?.[0]?.message?.content?.trim() || "";
-
     content = content
       .replace(/^```(?:json)?\s*/i, "")
       .replace(/\s*```$/i, "")
@@ -137,50 +132,51 @@ async function generateQuiz(topic = "") {
 }
 
 // ──────────────────────────────────────────────
-// Webhook для Telegram
+// Обработчик команды /quiz
 // ──────────────────────────────────────────────
-app.post(`/bot${process.env.TELEGRAM_TOKEN}`, async (req, res) => {
-  res.sendStatus(200);
-
-  const update = req.body;
-  if (!update?.message?.text?.startsWith("/quiz")) return;
-
-  const chatId = update.message.chat.id;
-  const text = update.message.text.trim();
-  const topic = text.slice(5).trim();
+bot.command("quiz", async (ctx) => {
+  const chatId = ctx.chat.id;
+  const text = ctx.message.text.trim();
+  let topic = text.slice("/quiz".length).trim();
 
   try {
     console.log("[WEBHOOK] /quiz от", chatId, "тема:", topic || "случайная");
 
-    const loadingMsg = await bot.sendMessage(chatId, "Генерирую вопрос... ⏳");
+    const loadingMsg = await ctx.api.sendMessage(
+      chatId,
+      "Генерирую вопрос... ⏳"
+    );
 
     const quiz = await generateQuiz(topic);
 
-    await bot.sendPoll(chatId, quiz.question, quiz.options, {
+    await ctx.api.sendPoll(chatId, quiz.question, quiz.options, {
       type: "quiz",
-      correct_option_id: quiz.correctIndex,
+      correct_option_id: quiz.correctIndex, // ← здесь correct_option_id, а не correctIndex!
       explanation: quiz.explanation,
       is_anonymous: false,
       protects_content: false,
     });
 
-    await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    console.log("[WEBHOOK] Опрос отправлен");
+    await ctx.api.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+
+    console.log("[WEBHOOK] Опрос успешно отправлен");
   } catch (err) {
-    console.error("[WEBHOOK] Ошибка:", err.message);
-    bot
+    console.error("[WEBHOOK] Ошибка:", err.message || err);
+    await ctx.api
       .sendMessage(chatId, "Не удалось создать вопрос 😔\nПопробуй позже.")
       .catch(() => {});
   }
 });
 
 // ──────────────────────────────────────────────
-// Простые GET-эндпоинты для Render
+// Webhook для Express
 // ──────────────────────────────────────────────
-app.get("/", (req, res) => {
-  res.send("Бот на webhook работает. Всё в порядке!");
-});
+app.use(`/bot${process.env.TELEGRAM_TOKEN}`, webhookCallback(bot, "express"));
 
+// ──────────────────────────────────────────────
+// Health-check и главная страница
+// ──────────────────────────────────────────────
+app.get("/", (req, res) => res.send("Бот на grammY работает. Всё ок!"));
 app.get("/health", (req, res) => {
   res.status(200).json({
     status: "жив",
@@ -188,26 +184,22 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Heartbeat для логов
+// Heartbeat
 setInterval(() => {
   console.log(`Бот жив | uptime ${Math.floor(process.uptime() / 60)} мин`);
 }, 50000);
 
 // ──────────────────────────────────────────────
-// Установка webhook
+// Установка webhook при запуске
 // ──────────────────────────────────────────────
 async function установитьWebhook() {
   try {
-    await bot.deleteWebHook();
-    await bot.setWebHook(
-      `${process.env.APP_URL}/bot${process.env.TELEGRAM_TOKEN}`
-    );
-    console.log(
-      "Webhook установлен:",
-      `${process.env.APP_URL}/bot${process.env.TELEGRAM_TOKEN}`
-    );
+    await bot.api.deleteWebhook({ drop_pending_updates: true });
+    const url = `${process.env.APP_URL}/bot${process.env.TELEGRAM_TOKEN}`;
+    await bot.api.setWebhook(url);
+    console.log("Webhook успешно установлен →", url);
   } catch (err) {
-    console.error("Ошибка установки webhook:", err.message);
+    console.error("Ошибка при установке webhook:", err.message || err);
   }
 }
 
@@ -217,8 +209,6 @@ async function установитьWebhook() {
 // Запуск сервера
 // ──────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-console.log("PORT из env:", process.env.PORT);
-
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Сервер запущен на порту ${PORT} (0.0.0.0)`);
+  console.log(`Сервер запущен на порту ${PORT}`);
 });
