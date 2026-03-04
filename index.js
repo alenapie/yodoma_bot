@@ -204,7 +204,7 @@ bot.on("message:text", async (ctx) => {
 // ──────────────────────────────────────────────
 // Webhook
 // ──────────────────────────────────────────────
-app.use(`/bot${process.env.TELEGRAM_TOKEN}`, webhookCallback(bot, "express"));
+app.use(`/bot/${process.env.TELEGRAM_TOKEN}`, webhookCallback(bot, "express"));
 
 app.get("/", (req, res) => res.send("Бот работает"));
 app.get("/health", (req, res) => res.json({ status: "ok" }));
