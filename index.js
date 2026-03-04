@@ -111,7 +111,7 @@ async function getWordExplanation(query) {
 `;
 
   const userPrompt = `
-Дай краткое энциклопедическое объяснение:
+Дай краткое энциклопедическое объяснение по типу "*слово* - это...":
 ${query}
 `;
 
