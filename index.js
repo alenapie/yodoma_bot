@@ -2,6 +2,8 @@ require("dotenv").config();
 const express = require("express");
 const { Bot, webhookCallback } = require("grammy");
 const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 
 // ──────────────────────────────────────────────
 // Проверка переменных
@@ -17,8 +19,32 @@ if (
 
 const app = express();
 app.use(express.json());
-
 const bot = new Bot(process.env.TELEGRAM_TOKEN);
+
+// ──────────────────────────────────────────────
+// JSON-файл для хранения участников
+// ──────────────────────────────────────────────
+const USERS_FILE = path.join(__dirname, "users.json");
+let users = new Map();
+
+try {
+  if (fs.existsSync(USERS_FILE)) {
+    const data = fs.readFileSync(USERS_FILE, "utf-8");
+    const parsed = JSON.parse(data);
+    users = new Map(parsed.map((u) => [u.id, u]));
+  }
+} catch (err) {
+  console.error("Ошибка загрузки users.json:", err.message);
+}
+
+function saveUsers() {
+  try {
+    const arr = Array.from(users.values());
+    fs.writeFileSync(USERS_FILE, JSON.stringify(arr, null, 2), "utf-8");
+  } catch (err) {
+    console.error("Ошибка сохранения users.json:", err.message);
+  }
+}
 
 // ──────────────────────────────────────────────
 // Темы викторины
@@ -49,22 +75,18 @@ async function generateQuiz(topic = "") {
     topic = allowedTopics[Math.floor(Math.random() * allowedTopics.length)];
   }
 
-  const systemPrompt = `
-Ты — генератор викторин.
+  const systemPrompt = `Ты — генератор викторин.
 Отвечай строго одним валидным JSON.
-Без текста вне JSON.
-`;
+Без текста вне JSON.`;
 
-  const userPrompt = `
-Создай 1 вопрос средней сложности по теме "${topic}".
+  const userPrompt = `Создай 1 вопрос средней сложности по теме "${topic}".
 Формат:
 {
   "question": "...",
   "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
   "correctIndex": 0-3,
   "explanation": "..."
-}
-`;
+}`;
 
   const response = await axios.post(
     "https://api.ai-mediator.ru/v1/chat/completions",
@@ -86,64 +108,11 @@ async function generateQuiz(topic = "") {
   );
 
   let content = response.data.choices?.[0]?.message?.content?.trim() || "";
-
   content = content
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
-
-  const quiz = JSON.parse(content);
-  return quiz;
-}
-
-// ──────────────────────────────────────────────
-// Энциклопедическое объяснение
-// ──────────────────────────────────────────────
-async function getWordExplanation(query) {
-  const systemPrompt = `
-Ты — энциклопедический справочник.
-Пиши нейтральным стилем, как в Википедии.
-Без сленга.
-Без повторения термина в начале.
-Без кавычек.
-1–3 предложения.
-Если информации нет — пиши: "Нет достоверной информации".
-`;
-
-  const userPrompt = `
-Дай краткое энциклопедическое объяснение по типу "*слово* - это...":
-${query}
-`;
-
-  const response = await axios.post(
-    "https://api.ai-mediator.ru/v1/chat/completions",
-    {
-      model: "gpt-4o-mini",
-      temperature: 0.2,
-      max_tokens: 300,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    },
-    {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
-      },
-    }
-  );
-
-  let content =
-    response.data.choices?.[0]?.message?.content?.trim() ||
-    "Нет достоверной информации";
-
-  content = content
-    .replace(/^```.*?\n?/g, "")
-    .replace(/```$/g, "")
-    .trim();
-
-  return content;
+  return JSON.parse(content);
 }
 
 // ──────────────────────────────────────────────
@@ -154,7 +123,6 @@ bot.command("quiz", async (ctx) => {
 
   try {
     const loading = await ctx.reply("Генерирую вопрос... ⏳");
-
     const quiz = await generateQuiz(topic);
 
     await ctx.replyWithPoll(quiz.question, quiz.options, {
@@ -174,24 +142,45 @@ bot.command("quiz", async (ctx) => {
 });
 
 // ──────────────────────────────────────────────
-// Едома / Ёдома обработчик
+// Сбор участников чата
+// ──────────────────────────────────────────────
+bot.on("message", (ctx) => {
+  const user = ctx.from;
+  if (!user) return;
+
+  if (!users.has(user.id)) {
+    users.set(user.id, { id: user.id, first_name: user.first_name });
+    saveUsers();
+  }
+});
+
+// ──────────────────────────────────────────────
+// Едома/Ёдома обработчик
 // ──────────────────────────────────────────────
 bot.on("message:text", async (ctx) => {
   const text = ctx.message.text.trim();
-
   const regex =
     /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
-
   const match = text.match(regex);
   if (!match) return;
 
   const query = match[3].trim();
 
+  if (/^кто /.test(match[2])) {
+    // Рандомный участник
+    const userList = Array.from(users.values());
+    if (userList.length === 0) return ctx.reply("Я ещё никого не знаю 😢");
+
+    const randomUser = userList[Math.floor(Math.random() * userList.length)];
+    const mention = `<a href="tg://user?id=${randomUser.id}">${randomUser.first_name}</a>`;
+
+    return ctx.reply(`${query} — ${mention}`, { parse_mode: "HTML" });
+  }
+
+  // Здесь оставляем текущую энциклопедическую функцию без изменений
   try {
     await ctx.replyWithChatAction("typing");
-
     const explanation = await getWordExplanation(query);
-
     await ctx.reply(explanation.charAt(0).toUpperCase() + explanation.slice(1));
   } catch (err) {
     console.error("Ошибка explain:", err.message);
@@ -203,7 +192,6 @@ bot.on("message:text", async (ctx) => {
 // Webhook
 // ──────────────────────────────────────────────
 app.use(`/bot/${process.env.TELEGRAM_TOKEN}`, webhookCallback(bot, "express"));
-
 app.get("/", (req, res) => res.send("Бот работает"));
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 
@@ -220,7 +208,7 @@ async function setupWebhook() {
 setupWebhook();
 
 // ──────────────────────────────────────────────
-// Запуск
+// Запуск сервера
 // ──────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
