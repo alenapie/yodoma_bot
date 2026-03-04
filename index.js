@@ -1,40 +1,27 @@
 require("dotenv").config();
 const express = require("express");
-const TelegramBot = require("node-telegram-bot-api");
-const fetch = require("node-fetch");
+const { Bot, webhookCallback } = require("grammy");
+const axios = require("axios");
 
 // ──────────────────────────────────────────────
-//          Проверка обязательных переменных
+// Проверка переменных
 // ──────────────────────────────────────────────
-console.log(
-  "TELEGRAM_TOKEN:     ",
-  process.env.TELEGRAM_TOKEN ? "присутствует" : "ОТСУТСТВУЕТ!"
-);
-console.log(
-  "AI_MEDIATOR_API_KEY:",
-  process.env.AI_MEDIATOR_API_KEY ? "присутствует" : "ОТСУТСТВУЕТ!"
-);
-console.log("APP_URL:            ", process.env.APP_URL || "не указан");
-
 if (
   !process.env.TELEGRAM_TOKEN ||
   !process.env.AI_MEDIATOR_API_KEY ||
   !process.env.APP_URL
 ) {
-  console.error("❌ Отсутствуют критические переменные окружения!");
+  console.error("❌ Отсутствуют переменные окружения!");
   process.exit(1);
 }
 
-// ──────────────────────────────────────────────
-//                Инициализация
-// ──────────────────────────────────────────────
 const app = express();
 app.use(express.json());
 
-const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: false });
+const bot = new Bot(process.env.TELEGRAM_TOKEN);
 
 // ──────────────────────────────────────────────
-//          Разрешённые темы для случайного вопроса
+// Темы викторины
 // ──────────────────────────────────────────────
 const allowedTopics = [
   "история",
@@ -42,188 +29,200 @@ const allowedTopics = [
   "страны",
   "столицы",
   "животные",
-  "растения",
   "еда",
-  "кухни мира",
   "спорт",
   "музыка",
   "кино",
-  "сериалы",
   "литература",
   "искусство",
   "знаменитости",
-  "психология",
-  "мода",
-  "автомобили",
   "путешествия",
   "традиции",
   "праздники",
 ];
 
 // ──────────────────────────────────────────────
-//      Генерация вопроса (Claude-3-7-sonnet)
+// Генерация викторины
 // ──────────────────────────────────────────────
 async function generateQuiz(topic = "") {
-  const isRandom = !topic.trim();
-
-  if (isRandom) {
+  if (!topic.trim()) {
     topic = allowedTopics[Math.floor(Math.random() * allowedTopics.length)];
   }
 
-  const systemPrompt = `Ты — генератор вопросов для викторин.
-Отвечай ТОЛЬКО одним валидным JSON-объектом.
-Никакого текста вне JSON.
-Никогда не используй темы: химия, физика, математика, программирование.`;
+  const systemPrompt = `
+Ты — генератор викторин.
+Отвечай строго одним валидным JSON.
+Без текста вне JSON.
+`;
 
-  const userPrompt = `Сгенерируй ровно ОДИН вопрос викторины средней сложности строго по теме "${topic}".
-Формат строго JSON:
+  const userPrompt = `
+Создай 1 вопрос средней сложности по теме "${topic}".
+Формат:
 {
-  "question": "текст вопроса",
+  "question": "...",
   "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-  "correctIndex": число от 0 до 3,
-  "explanation": "короткое объяснение"
-}`;
+  "correctIndex": 0-3,
+  "explanation": "..."
+}
+`;
 
-  try {
-    console.log("[GENERATE] Запущена генерация, тема:", topic);
+  const response = await axios.post(
+    "https://api.ai-mediator.ru/v1/chat/completions",
+    {
+      model: "gpt-4o-mini",
+      temperature: 0.7,
+      max_tokens: 600,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
+      },
+    },
+  );
 
-    const response = await fetch(
-      "https://api.ai-mediator.ru/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "claude-3-7-sonnet-20250219",
-          temperature: 0.5,
-          max_tokens: 700,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-        }),
-      }
-    );
+  let content = response.data.choices?.[0]?.message?.content?.trim() || "";
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Ошибка API: ${response.status} — ${errText}`);
-    }
+  content = content
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
 
-    const data = await response.json();
-    let content = data.choices?.[0]?.message?.content?.trim() || "";
-
-    content = content
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```$/i, "")
-      .trim();
-
-    const quiz = JSON.parse(content);
-
-    if (
-      typeof quiz.question !== "string" ||
-      !Array.isArray(quiz.options) ||
-      quiz.options.length !== 4 ||
-      !Number.isInteger(quiz.correctIndex) ||
-      quiz.correctIndex < 0 ||
-      quiz.correctIndex > 3 ||
-      typeof quiz.explanation !== "string"
-    ) {
-      throw new Error("AI вернул неправильную структуру вопроса");
-    }
-
-    return quiz;
-  } catch (err) {
-    console.error("[Генерация вопроса] Ошибка:", err.message);
-    throw err;
-  }
+  const quiz = JSON.parse(content);
+  return quiz;
 }
 
 // ──────────────────────────────────────────────
-//               Webhook для Telegram
+// Энциклопедическое объяснение
 // ──────────────────────────────────────────────
-app.post(`/bot${process.env.TELEGRAM_TOKEN}`, async (req, res) => {
-  res.sendStatus(200); // сразу отвечаем Telegram
+async function getWordExplanation(query) {
+  const systemPrompt = `
+Ты — энциклопедический справочник.
+Пиши нейтральным стилем, как в Википедии.
+Без сленга.
+Без повторения термина в начале.
+Без кавычек.
+1–3 предложения.
+Если информации нет — пиши: "Нет достоверной информации".
+`;
 
-  const update = req.body;
-  if (!update?.message?.text?.startsWith("/quiz")) return;
+  const userPrompt = `
+Дай краткое энциклопедическое объяснение по типу "*слово* - это...":
+${query}
+`;
 
-  const chatId = update.message.chat.id;
-  const text = update.message.text.trim();
-  const topic = text.slice(5).trim();
+  const response = await axios.post(
+    "https://api.ai-mediator.ru/v1/chat/completions",
+    {
+      model: "gpt-4o-mini",
+      temperature: 0.2,
+      max_tokens: 300,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
+      },
+    },
+  );
+
+  let content =
+    response.data.choices?.[0]?.message?.content?.trim() ||
+    "Нет достоверной информации";
+
+  content = content
+    .replace(/^```.*?\n?/g, "")
+    .replace(/```$/g, "")
+    .trim();
+
+  return content;
+}
+
+// ──────────────────────────────────────────────
+// /quiz
+// ──────────────────────────────────────────────
+bot.command("quiz", async (ctx) => {
+  const topic = ctx.message.text.slice("/quiz".length).trim();
 
   try {
-    console.log("[WEBHOOK] /quiz от", chatId, "тема:", topic || "случайная");
-
-    const loadingMsg = await bot.sendMessage(chatId, "Генерирую вопрос... ⏳");
+    const loading = await ctx.reply("Генерирую вопрос... ⏳");
 
     const quiz = await generateQuiz(topic);
 
-    await bot.sendPoll(chatId, quiz.question, quiz.options, {
+    await ctx.replyWithPoll(quiz.question, quiz.options, {
       type: "quiz",
       correct_option_id: quiz.correctIndex,
       explanation: quiz.explanation,
       is_anonymous: false,
-      protects_content: false,
     });
 
-    await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    console.log("[WEBHOOK] Опрос отправлен");
-  } catch (err) {
-    console.error("[WEBHOOK] Ошибка:", err.message);
-    bot
-      .sendMessage(chatId, "Не удалось создать вопрос 😔\nПопробуй позже.")
+    await ctx.api
+      .deleteMessage(ctx.chat.id, loading.message_id)
       .catch(() => {});
-  }
-});
-
-// ──────────────────────────────────────────────
-//   Простые GET-эндпоинты для Render
-// ──────────────────────────────────────────────
-app.get("/", (req, res) => {
-  res.send("Бот на webhook работает. Всё в порядке!");
-});
-
-app.get("/health", (req, res) => {
-  res.status(200).json({
-    status: "жив",
-    uptime: Math.floor(process.uptime() / 60) + " минут",
-  });
-});
-
-// Heartbeat для логов
-setInterval(() => {
-  console.log(`Бот жив | uptime ${Math.floor(process.uptime() / 60)} мин`);
-}, 50000);
-
-// ──────────────────────────────────────────────
-//               Установка webhook
-// ──────────────────────────────────────────────
-async function установитьWebhook() {
-  try {
-    await bot.deleteWebHook(); // на всякий случай удаляем старый
-    await bot.setWebHook(
-      `${process.env.APP_URL}/bot${process.env.TELEGRAM_TOKEN}`
-    );
-    console.log(
-      "Webhook установлен:",
-      `${process.env.APP_URL}/bot${process.env.TELEGRAM_TOKEN}`
-    );
   } catch (err) {
-    console.error("Ошибка установки webhook:", err.message);
+    console.error("Ошибка /quiz:", err.message);
+    await ctx.reply("Не удалось создать вопрос 😔");
   }
+});
+
+// ──────────────────────────────────────────────
+// Едома / Ёдома обработчик
+// ──────────────────────────────────────────────
+bot.on("message:text", async (ctx) => {
+  const text = ctx.message.text.trim();
+
+  const regex =
+    /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
+
+  const match = text.match(regex);
+  if (!match) return;
+
+  const query = match[3].trim();
+
+  try {
+    await ctx.replyWithChatAction("typing");
+
+    const explanation = await getWordExplanation(query);
+
+    await ctx.reply(explanation.charAt(0).toUpperCase() + explanation.slice(1));
+  } catch (err) {
+    console.error("Ошибка explain:", err.message);
+    await ctx.reply("Не удалось найти информацию 😔");
+  }
+});
+
+// ──────────────────────────────────────────────
+// Webhook
+// ──────────────────────────────────────────────
+app.use(`/bot/${process.env.TELEGRAM_TOKEN}`, webhookCallback(bot, "express"));
+
+app.get("/", (req, res) => res.send("Бот работает"));
+app.get("/health", (req, res) => res.json({ status: "ok" }));
+
+// ──────────────────────────────────────────────
+// Установка webhook
+// ──────────────────────────────────────────────
+async function setupWebhook() {
+  await bot.api.deleteWebhook({ drop_pending_updates: true });
+  const url = `${process.env.APP_URL}/bot/${process.env.TELEGRAM_TOKEN}`;
+  await bot.api.setWebhook(url);
+  console.log("Webhook установлен:", url);
 }
 
-установитьWebhook();
+setupWebhook();
 
 // ──────────────────────────────────────────────
-//                   Запуск сервера
+// Запуск
 // ──────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-console.log("PORT из env:", process.env.PORT);
-
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Сервер запущен на порту ${PORT} (0.0.0.0)`);
+  console.log("Сервер запущен на порту", PORT);
 });
