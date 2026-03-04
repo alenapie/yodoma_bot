@@ -192,9 +192,7 @@ bot.on("message:text", async (ctx) => {
 
     const explanation = await getWordExplanation(query);
 
-    await ctx.reply(`*${query.toUpperCase()}*\n\n${explanation}`, {
-      parse_mode: "Markdown",
-    });
+    await ctx.reply(explanation.charAt(0).toUpperCase() + explanation.slice(1));
   } catch (err) {
     console.error("Ошибка explain:", err.message);
     await ctx.reply("Не удалось найти информацию 😔");
