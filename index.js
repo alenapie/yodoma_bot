@@ -2,7 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const { Bot, webhookCallback } = require("grammy");
 const axios = require("axios");
-const Database = require("better-sqlite3");
+const { Pool } = require("pg");
 
 // ──────────────────────────────────────────────
 // Проверка переменных окружения
@@ -10,7 +10,8 @@ const Database = require("better-sqlite3");
 if (
   !process.env.TELEGRAM_TOKEN ||
   !process.env.AI_MEDIATOR_API_KEY ||
-  !process.env.APP_URL
+  !process.env.APP_URL ||
+  !process.env.DATABASE_URL
 ) {
   console.error("❌ Отсутствуют переменные окружения!");
   process.exit(1);
@@ -23,18 +24,20 @@ const app = express();
 app.use(express.json());
 const bot = new Bot(process.env.TELEGRAM_TOKEN);
 
-// SQLite
-const db = new Database("participants.db");
-db.prepare(
-  `
-  CREATE TABLE IF NOT EXISTS participants (
-    user_id INTEGER PRIMARY KEY,
-    username TEXT,
-    first_name TEXT,
-    last_name TEXT
-  )
-`,
-).run();
+// PostgreSQL
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+// Создаём таблицу участников, если её нет
+(async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS participants (
+      user_id BIGINT PRIMARY KEY,
+      username TEXT,
+      first_name TEXT,
+      last_name TEXT
+    );
+  `);
+})();
 
 // ──────────────────────────────────────────────
 // Темы викторины
@@ -61,9 +64,8 @@ const allowedTopics = [
 // Генерация викторины
 // ──────────────────────────────────────────────
 async function generateQuiz(topic = "") {
-  if (!topic.trim()) {
+  if (!topic.trim())
     topic = allowedTopics[Math.floor(Math.random() * allowedTopics.length)];
-  }
 
   const systemPrompt = `
 Ты — генератор викторин.
@@ -180,21 +182,26 @@ bot.command("quiz", async (ctx) => {
 });
 
 // ──────────────────────────────────────────────
-// Сохраняем участников в базу
+// Сохраняем участников в PostgreSQL
 // ──────────────────────────────────────────────
-bot.on("message", (ctx) => {
+bot.on("message", async (ctx) => {
   const user = ctx.from;
   if (user && !user.is_bot) {
-    db.prepare(
+    await pool.query(
       `
-      INSERT OR REPLACE INTO participants (user_id, username, first_name, last_name)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO participants (user_id, username, first_name, last_name)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (user_id) DO UPDATE
+      SET username = EXCLUDED.username,
+          first_name = EXCLUDED.first_name,
+          last_name = EXCLUDED.last_name
     `,
-    ).run(
-      user.id,
-      user.username || null,
-      user.first_name || null,
-      user.last_name || null,
+      [
+        user.id,
+        user.username || null,
+        user.first_name || null,
+        user.last_name || null,
+      ],
     );
   }
 });
@@ -205,7 +212,7 @@ bot.on("message", (ctx) => {
 bot.on("message:text", async (ctx) => {
   const text = ctx.message.text.trim();
 
-  // 1️⃣ Энциклопедические объяснения
+  // 1️⃣ Энциклопедия
   const regexEdomaExplain =
     /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
   const matchExplain = text.match(regexEdomaExplain);
@@ -224,7 +231,7 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
-  // 2️⃣ Едома кто ХХХ — случайный участник из базы
+  // 2️⃣ Едома кто ХХХ?
   const regexEdomaWho = /^едома\s+кто\s+(.+)\?$/i;
   const matchWho = text.match(regexEdomaWho);
   if (matchWho) {
@@ -232,9 +239,10 @@ bot.on("message:text", async (ctx) => {
     try {
       await ctx.replyWithChatAction("typing");
 
-      const row = db
-        .prepare(`SELECT * FROM participants ORDER BY RANDOM() LIMIT 1`)
-        .get();
+      const { rows } = await pool.query(
+        `SELECT * FROM participants ORDER BY RANDOM() LIMIT 1`,
+      );
+      const row = rows[0];
 
       if (!row) {
         await ctx.reply("Нет участников для выбора 😔");
