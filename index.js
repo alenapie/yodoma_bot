@@ -5,7 +5,7 @@ const axios = require("axios");
 const { Pool } = require("pg");
 
 // ──────────────────────────────────────────────
-// Проверка переменных окружения
+// Проверка переменных
 // ──────────────────────────────────────────────
 if (
   !process.env.TELEGRAM_TOKEN ||
@@ -18,29 +18,40 @@ if (
 }
 
 // ──────────────────────────────────────────────
-// Инициализация бота и базы данных
+// PostgreSQL Pool
 // ──────────────────────────────────────────────
-const app = express();
-app.use(express.json());
-const bot = new Bot(process.env.TELEGRAM_TOKEN);
-
-// PostgreSQL
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-// Создаём таблицу участников, если её нет
 (async () => {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS participants (
-      user_id BIGINT PRIMARY KEY,
-      username TEXT,
-      first_name TEXT,
-      last_name TEXT
-    );
-  `);
+  try {
+    // Создание таблицы participants, если нет
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS participants (
+        user_id BIGINT PRIMARY KEY,
+        username TEXT,
+        first_name TEXT,
+        last_name TEXT
+      );
+    `);
+    console.log("✅ Таблица participants готова");
+  } catch (err) {
+    console.error("❌ Ошибка при создании таблицы:", err.message);
+  }
 })();
 
 // ──────────────────────────────────────────────
-// Темы викторины
+// Express
+// ──────────────────────────────────────────────
+const app = express();
+app.use(express.json());
+
+// ──────────────────────────────────────────────
+// Инициализация бота
+// ──────────────────────────────────────────────
+const bot = new Bot(process.env.TELEGRAM_TOKEN);
+
+// ──────────────────────────────────────────────
+// Викторина
 // ──────────────────────────────────────────────
 const allowedTopics = [
   "история",
@@ -60,29 +71,18 @@ const allowedTopics = [
   "праздники",
 ];
 
-// ──────────────────────────────────────────────
-// Генерация викторины
-// ──────────────────────────────────────────────
 async function generateQuiz(topic = "") {
   if (!topic.trim())
     topic = allowedTopics[Math.floor(Math.random() * allowedTopics.length)];
 
-  const systemPrompt = `
-Ты — генератор викторин.
-Отвечай строго одним валидным JSON.
-Без текста вне JSON.
-`;
-
-  const userPrompt = `
-Создай 1 вопрос средней сложности по теме "${topic}".
-Формат:
+  const systemPrompt = `Ты — генератор викторин. Отвечай строго JSON.`;
+  const userPrompt = `Создай 1 вопрос средней сложности по теме "${topic}". Формат:
 {
   "question": "...",
   "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
   "correctIndex": 0-3,
   "explanation": "..."
-}
-`;
+}`;
 
   const response = await axios.post(
     "https://api.ai-mediator.ru/v1/chat/completions",
@@ -111,54 +111,6 @@ async function generateQuiz(topic = "") {
   return JSON.parse(content);
 }
 
-// ──────────────────────────────────────────────
-// Энциклопедическое объяснение
-// ──────────────────────────────────────────────
-async function getWordExplanation(query) {
-  const systemPrompt = `
-Ты — энциклопедический справочник.
-Пиши нейтральным стилем, как в Википедии.
-Без сленга.
-Без повторения термина в начале.
-Без кавычек.
-1–3 предложения.
-Если информации нет — пиши: "Нет достоверной информации".
-`;
-
-  const userPrompt = `Дай краткое энциклопедическое объяснение по типу "*слово* - это...":\n${query}`;
-
-  const response = await axios.post(
-    "https://api.ai-mediator.ru/v1/chat/completions",
-    {
-      model: "gpt-4o-mini",
-      temperature: 0.2,
-      max_tokens: 300,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    },
-    {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
-      },
-    },
-  );
-
-  let content =
-    response.data.choices?.[0]?.message?.content?.trim() ||
-    "Нет достоверной информации";
-  content = content
-    .replace(/^```.*?\n?/g, "")
-    .replace(/```$/g, "")
-    .trim();
-  return content;
-}
-
-// ──────────────────────────────────────────────
-// Команда /quiz
-// ──────────────────────────────────────────────
 bot.command("quiz", async (ctx) => {
   const topic = ctx.message.text.slice("/quiz".length).trim();
   try {
@@ -182,20 +134,20 @@ bot.command("quiz", async (ctx) => {
 });
 
 // ──────────────────────────────────────────────
-// Сохраняем участников в PostgreSQL
+// "едома кто ххх"
 // ──────────────────────────────────────────────
-bot.on("message", async (ctx) => {
-  const user = ctx.from;
-  if (user && !user.is_bot) {
+bot.on("message:text", async (ctx) => {
+  const text = ctx.message.text.trim();
+  const regex = /^едома кто\s+(.+)/i;
+  const match = text.match(regex);
+
+  // Если сообщение не по формату, только сохраняем участника
+  try {
+    const user = ctx.message.from;
     await pool.query(
-      `
-      INSERT INTO participants (user_id, username, first_name, last_name)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (user_id) DO UPDATE
-      SET username = EXCLUDED.username,
-          first_name = EXCLUDED.first_name,
-          last_name = EXCLUDED.last_name
-    `,
+      `INSERT INTO participants(user_id, username, first_name, last_name)
+       VALUES($1,$2,$3,$4)
+       ON CONFLICT (user_id) DO NOTHING`,
       [
         user.id,
         user.username || null,
@@ -203,65 +155,41 @@ bot.on("message", async (ctx) => {
         user.last_name || null,
       ],
     );
+
+    // Логируем количество участников
+    const { rows } = await pool.query("SELECT COUNT(*) FROM participants");
+    console.log("📊 Всего участников в базе:", rows[0].count);
+  } catch (err) {
+    console.error("Ошибка добавления участника:", err.message);
+  }
+
+  // Если это запрос "едома кто ххх"
+  if (!match) return;
+  const query = match[1].trim();
+
+  try {
+    const { rows } = await pool.query(
+      "SELECT username, first_name FROM participants ORDER BY RANDOM() LIMIT 1",
+    );
+    if (rows.length === 0) {
+      await ctx.reply("Нет участников в базе 😔");
+      return;
+    }
+    const randomUser = rows[0];
+    const display = randomUser.username
+      ? `@${randomUser.username}`
+      : `${randomUser.first_name || "Неизвестный"}`;
+    await ctx.reply(`${query} - ${display}`);
+  } catch (err) {
+    console.error("Ошибка выборки случайного участника:", err.message);
+    await ctx.reply("Не удалось выбрать участника 😔");
   }
 });
 
 // ──────────────────────────────────────────────
-// Обработчик текста
-// ──────────────────────────────────────────────
-bot.on("message:text", async (ctx) => {
-  const text = ctx.message.text.trim();
-
-  // 1️⃣ Энциклопедия
-  const regexEdomaExplain =
-    /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
-  const matchExplain = text.match(regexEdomaExplain);
-  if (matchExplain) {
-    const query = matchExplain[3].trim();
-    try {
-      await ctx.replyWithChatAction("typing");
-      const explanation = await getWordExplanation(query);
-      await ctx.reply(
-        explanation.charAt(0).toUpperCase() + explanation.slice(1),
-      );
-    } catch (err) {
-      console.error("Ошибка explain:", err.message);
-      await ctx.reply("Не удалось найти информацию 😔");
-    }
-    return;
-  }
-
-  // 2️⃣ Едома кто ХХХ?
-  const regexEdomaWho = /^едома\s+кто\s+(.+)\?$/i;
-  const matchWho = text.match(regexEdomaWho);
-  if (matchWho) {
-    const queryName = matchWho[1].trim();
-    try {
-      await ctx.replyWithChatAction("typing");
-
-      const { rows } = await pool.query(
-        `SELECT * FROM participants ORDER BY RANDOM() LIMIT 1`,
-      );
-      const row = rows[0];
-
-      if (!row) {
-        await ctx.reply("Нет участников для выбора 😔");
-        return;
-      }
-
-      await ctx.reply(`${queryName} - @${row.username || row.first_name}`);
-    } catch (err) {
-      console.error("Ошибка кто:", err);
-      await ctx.reply("Не удалось выбрать участника 😔");
-    }
-  }
-});
-
-// ──────────────────────────────────────────────
-// Webhook
+// Webhook для Render
 // ──────────────────────────────────────────────
 app.use(`/bot/${process.env.TELEGRAM_TOKEN}`, webhookCallback(bot, "express"));
-
 app.get("/", (req, res) => res.send("Бот работает"));
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 
@@ -269,7 +197,7 @@ async function setupWebhook() {
   await bot.api.deleteWebhook({ drop_pending_updates: true });
   const url = `${process.env.APP_URL}/bot/${process.env.TELEGRAM_TOKEN}`;
   await bot.api.setWebhook(url);
-  console.log("Webhook установлен:", url);
+  console.log("✅ Webhook установлен:", url);
 }
 
 setupWebhook();
@@ -278,6 +206,6 @@ setupWebhook();
 // Запуск сервера
 // ──────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("Сервер запущен на порту", PORT);
-});
+app.listen(PORT, "0.0.0.0", () =>
+  console.log("🚀 Сервер запущен на порту", PORT),
+);
