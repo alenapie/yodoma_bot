@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const { Bot, webhookCallback } = require("grammy");
 const axios = require("axios");
+const Database = require("better-sqlite3");
 
 // ──────────────────────────────────────────────
 // Проверка переменных окружения
@@ -15,10 +16,25 @@ if (
   process.exit(1);
 }
 
+// ──────────────────────────────────────────────
+// Инициализация бота и базы данных
+// ──────────────────────────────────────────────
 const app = express();
 app.use(express.json());
-
 const bot = new Bot(process.env.TELEGRAM_TOKEN);
+
+// SQLite
+const db = new Database("participants.db");
+db.prepare(
+  `
+  CREATE TABLE IF NOT EXISTS participants (
+    user_id INTEGER PRIMARY KEY,
+    username TEXT,
+    first_name TEXT,
+    last_name TEXT
+  )
+`,
+).run();
 
 // ──────────────────────────────────────────────
 // Темы викторины
@@ -164,12 +180,32 @@ bot.command("quiz", async (ctx) => {
 });
 
 // ──────────────────────────────────────────────
+// Сохраняем участников в базу
+// ──────────────────────────────────────────────
+bot.on("message", (ctx) => {
+  const user = ctx.from;
+  if (user && !user.is_bot) {
+    db.prepare(
+      `
+      INSERT OR REPLACE INTO participants (user_id, username, first_name, last_name)
+      VALUES (?, ?, ?, ?)
+    `,
+    ).run(
+      user.id,
+      user.username || null,
+      user.first_name || null,
+      user.last_name || null,
+    );
+  }
+});
+
+// ──────────────────────────────────────────────
 // Обработчик текста
 // ──────────────────────────────────────────────
 bot.on("message:text", async (ctx) => {
   const text = ctx.message.text.trim();
 
-  // ── Едома/Ёдома энциклопедические объяснения
+  // 1️⃣ Энциклопедические объяснения
   const regexEdomaExplain =
     /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
   const matchExplain = text.match(regexEdomaExplain);
@@ -188,7 +224,7 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
-  // ── Едома кто ХХХ — случайный участник
+  // 2️⃣ Едома кто ХХХ — случайный участник из базы
   const regexEdomaWho = /^едома\s+кто\s+(.+)\?$/i;
   const matchWho = text.match(regexEdomaWho);
   if (matchWho) {
@@ -196,36 +232,18 @@ bot.on("message:text", async (ctx) => {
     try {
       await ctx.replyWithChatAction("typing");
 
-      const memberCount = await ctx.getChatMemberCount();
-      if (memberCount <= 1) {
-        await ctx.reply("В чате нет других участников 😔");
+      const row = db
+        .prepare(`SELECT * FROM participants ORDER BY RANDOM() LIMIT 1`)
+        .get();
+
+      if (!row) {
+        await ctx.reply("Нет участников для выбора 😔");
         return;
       }
 
-      let randomUser = null;
-      for (let i = 0; i < 10; i++) {
-        const randomId = Math.floor(Math.random() * memberCount) + 1;
-        const member = await ctx.getChatMember(randomId).catch(() => null);
-        if (
-          member &&
-          !member.user.is_bot &&
-          member.user.id !== ctx.botInfo.id
-        ) {
-          randomUser = member.user;
-          break;
-        }
-      }
-
-      if (!randomUser) {
-        await ctx.reply("Не удалось выбрать участника 😔");
-        return;
-      }
-
-      await ctx.reply(
-        `${queryName} - @${randomUser.username || randomUser.first_name}`,
-      );
+      await ctx.reply(`${queryName} - @${row.username || row.first_name}`);
     } catch (err) {
-      console.error("Ошибка кто:", err.message);
+      console.error("Ошибка кто:", err);
       await ctx.reply("Не удалось выбрать участника 😔");
     }
   }
