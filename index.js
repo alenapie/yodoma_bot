@@ -82,11 +82,7 @@ async function generateQuiz(topic = "") {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
       },
-<<<<<<< HEAD
     },
-=======
-    }
->>>>>>> fix/node-version
   );
 
   let content = response.data.choices?.[0]?.message?.content?.trim() || "";
@@ -135,11 +131,7 @@ ${query}
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
       },
-<<<<<<< HEAD
     },
-=======
-    }
->>>>>>> fix/node-version
   );
 
   let content =
