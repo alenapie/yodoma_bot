@@ -4,7 +4,7 @@ const { Bot, webhookCallback } = require("grammy");
 const axios = require("axios");
 
 // ──────────────────────────────────────────────
-// Проверка переменных
+// Проверка переменных окружения
 // ──────────────────────────────────────────────
 if (
   !process.env.TELEGRAM_TOKEN ||
@@ -86,14 +86,11 @@ async function generateQuiz(topic = "") {
   );
 
   let content = response.data.choices?.[0]?.message?.content?.trim() || "";
-
   content = content
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
-
-  const quiz = JSON.parse(content);
-  return quiz;
+  return JSON.parse(content);
 }
 
 // ──────────────────────────────────────────────
@@ -110,10 +107,7 @@ async function getWordExplanation(query) {
 Если информации нет — пиши: "Нет достоверной информации".
 `;
 
-  const userPrompt = `
-Дай краткое энциклопедическое объяснение по типу "*слово* - это...":
-${query}
-`;
+  const userPrompt = `Дай краткое энциклопедическое объяснение по типу "*слово* - это...":\n${query}`;
 
   const response = await axios.post(
     "https://api.ai-mediator.ru/v1/chat/completions",
@@ -137,24 +131,20 @@ ${query}
   let content =
     response.data.choices?.[0]?.message?.content?.trim() ||
     "Нет достоверной информации";
-
   content = content
     .replace(/^```.*?\n?/g, "")
     .replace(/```$/g, "")
     .trim();
-
   return content;
 }
 
 // ──────────────────────────────────────────────
-// /quiz
+// Команда /quiz
 // ──────────────────────────────────────────────
 bot.command("quiz", async (ctx) => {
   const topic = ctx.message.text.slice("/quiz".length).trim();
-
   try {
     const loading = await ctx.reply("Генерирую вопрос... ⏳");
-
     const quiz = await generateQuiz(topic);
 
     await ctx.replyWithPoll(quiz.question, quiz.options, {
@@ -174,28 +164,70 @@ bot.command("quiz", async (ctx) => {
 });
 
 // ──────────────────────────────────────────────
-// Едома / Ёдома обработчик
+// Обработчик текста
 // ──────────────────────────────────────────────
 bot.on("message:text", async (ctx) => {
   const text = ctx.message.text.trim();
 
-  const regex =
+  // ── Едома/Ёдома энциклопедические объяснения
+  const regexEdomaExplain =
     /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
+  const matchExplain = text.match(regexEdomaExplain);
+  if (matchExplain) {
+    const query = matchExplain[3].trim();
+    try {
+      await ctx.replyWithChatAction("typing");
+      const explanation = await getWordExplanation(query);
+      await ctx.reply(
+        explanation.charAt(0).toUpperCase() + explanation.slice(1),
+      );
+    } catch (err) {
+      console.error("Ошибка explain:", err.message);
+      await ctx.reply("Не удалось найти информацию 😔");
+    }
+    return;
+  }
 
-  const match = text.match(regex);
-  if (!match) return;
+  // ── Едома кто ХХХ — случайный участник
+  const regexEdomaWho = /^едома\s+кто\s+(.+)\?$/i;
+  const matchWho = text.match(regexEdomaWho);
+  if (matchWho) {
+    const queryName = matchWho[1].trim();
+    try {
+      await ctx.replyWithChatAction("typing");
 
-  const query = match[3].trim();
+      const memberCount = await ctx.getChatMembersCount();
+      if (memberCount <= 1) {
+        await ctx.reply("В чате нет других участников 😔");
+        return;
+      }
 
-  try {
-    await ctx.replyWithChatAction("typing");
+      let randomUser = null;
+      for (let i = 0; i < 10; i++) {
+        const randomId = Math.floor(Math.random() * memberCount) + 1;
+        const member = await ctx.getChatMember(randomId).catch(() => null);
+        if (
+          member &&
+          !member.user.is_bot &&
+          member.user.id !== ctx.botInfo.id
+        ) {
+          randomUser = member.user;
+          break;
+        }
+      }
 
-    const explanation = await getWordExplanation(query);
+      if (!randomUser) {
+        await ctx.reply("Не удалось выбрать участника 😔");
+        return;
+      }
 
-    await ctx.reply(explanation.charAt(0).toUpperCase() + explanation.slice(1));
-  } catch (err) {
-    console.error("Ошибка explain:", err.message);
-    await ctx.reply("Не удалось найти информацию 😔");
+      await ctx.reply(
+        `${queryName} - @${randomUser.username || randomUser.first_name}`,
+      );
+    } catch (err) {
+      console.error("Ошибка кто:", err.message);
+      await ctx.reply("Не удалось выбрать участника 😔");
+    }
   }
 });
 
@@ -207,9 +239,6 @@ app.use(`/bot/${process.env.TELEGRAM_TOKEN}`, webhookCallback(bot, "express"));
 app.get("/", (req, res) => res.send("Бот работает"));
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 
-// ──────────────────────────────────────────────
-// Установка webhook
-// ──────────────────────────────────────────────
 async function setupWebhook() {
   await bot.api.deleteWebhook({ drop_pending_updates: true });
   const url = `${process.env.APP_URL}/bot/${process.env.TELEGRAM_TOKEN}`;
@@ -220,7 +249,7 @@ async function setupWebhook() {
 setupWebhook();
 
 // ──────────────────────────────────────────────
-// Запуск
+// Запуск сервера
 // ──────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
