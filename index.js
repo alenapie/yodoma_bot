@@ -196,7 +196,7 @@ bot.on("message:text", async (ctx) => {
     try {
       await ctx.replyWithChatAction("typing");
 
-      const memberCount = await ctx.getChatMembersCount();
+      const memberCount = await ctx.getChatMemberCount();
       if (memberCount <= 1) {
         await ctx.reply("В чате нет других участников 😔");
         return;
