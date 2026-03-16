@@ -134,16 +134,48 @@ bot.command("quiz", async (ctx) => {
 });
 
 // ──────────────────────────────────────────────
-// "едома кто ххх"
+// "едома кто ххх" + энциклопедия
 // ──────────────────────────────────────────────
 bot.on("message:text", async (ctx) => {
   const text = ctx.message.text.trim();
+
+  // ──────────────────────────────────────────────
+  // 1️⃣ Энциклопедия
+  // ──────────────────────────────────────────────
+  const regexEdomaExplain =
+    /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
+
+  const matchExplain = text.match(regexEdomaExplain);
+
+  if (matchExplain) {
+    const query = matchExplain[3].trim();
+
+    try {
+      await ctx.replyWithChatAction("typing");
+
+      const explanation = await getWordExplanation(query);
+
+      await ctx.reply(
+        explanation.charAt(0).toUpperCase() + explanation.slice(1),
+      );
+    } catch (err) {
+      console.error("Ошибка explain:", err.message);
+      await ctx.reply("Не удалось найти информацию 😔");
+    }
+
+    return;
+  }
+
+  // ──────────────────────────────────────────────
+  // ТВОЙ СУЩЕСТВУЮЩИЙ КОД (НЕ ТРОГАЕМ)
+  // ──────────────────────────────────────────────
+
   const regex = /^едома кто\s+(.+)/i;
   const match = text.match(regex);
 
-  // Если сообщение не по формату, только сохраняем участника
   try {
     const user = ctx.message.from;
+
     await pool.query(
       `INSERT INTO participants(user_id, username, first_name, last_name)
        VALUES($1,$2,$3,$4)
@@ -156,29 +188,32 @@ bot.on("message:text", async (ctx) => {
       ],
     );
 
-    // Логируем количество участников
     const { rows } = await pool.query("SELECT COUNT(*) FROM participants");
     console.log("📊 Всего участников в базе:", rows[0].count);
   } catch (err) {
     console.error("Ошибка добавления участника:", err.message);
   }
 
-  // Если это запрос "едома кто ххх"
   if (!match) return;
+
   const query = match[1].trim();
 
   try {
     const { rows } = await pool.query(
       "SELECT username, first_name FROM participants ORDER BY RANDOM() LIMIT 1",
     );
+
     if (rows.length === 0) {
       await ctx.reply("Нет участников в базе 😔");
       return;
     }
+
     const randomUser = rows[0];
+
     const display = randomUser.username
       ? `@${randomUser.username}`
       : `${randomUser.first_name || "Неизвестный"}`;
+
     await ctx.reply(`${query} - ${display}`);
   } catch (err) {
     console.error("Ошибка выборки случайного участника:", err.message);
