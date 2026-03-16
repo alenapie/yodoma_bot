@@ -5,6 +5,11 @@ const axios = require("axios");
 const { Pool } = require("pg");
 
 // ──────────────────────────────────────────────
+// Модель AI
+// ──────────────────────────────────────────────
+const MODEL = "gpt-4o";
+
+// ──────────────────────────────────────────────
 // Проверка переменных
 // ──────────────────────────────────────────────
 if (
@@ -48,7 +53,7 @@ const app = express();
 app.use(express.json());
 
 // ──────────────────────────────────────────────
-// Telegram Bot
+// Telegram bot
 // ──────────────────────────────────────────────
 const bot = new Bot(process.env.TELEGRAM_TOKEN);
 
@@ -98,7 +103,7 @@ async function generateQuiz(topic = "") {
   const response = await axios.post(
     "https://api.ai-mediator.ru/v1/chat/completions",
     {
-      model: "gpt-4o-mini",
+      model: MODEL,
       temperature: 0.7,
       max_tokens: 600,
       messages: [
@@ -125,7 +130,7 @@ async function generateQuiz(topic = "") {
 }
 
 // ──────────────────────────────────────────────
-// Энциклопедическое объяснение
+// Энциклопедия
 // ──────────────────────────────────────────────
 async function getWordExplanation(query) {
   const systemPrompt = `
@@ -139,14 +144,14 @@ async function getWordExplanation(query) {
 `;
 
   const userPrompt = `
-Дай краткое энциклопедическое объяснение по типу "*слово* - это...":
+Дай краткое энциклопедическое объяснение:
 ${query}
 `;
 
   const response = await axios.post(
     "https://api.ai-mediator.ru/v1/chat/completions",
     {
-      model: "gpt-4o-mini",
+      model: MODEL,
       temperature: 0.2,
       max_tokens: 300,
       messages: [
@@ -208,10 +213,10 @@ bot.on("message:text", async (ctx) => {
   const text = ctx.message.text.trim();
 
   // ───── Энциклопедия
-  const regexExplain =
+  const explainRegex =
     /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
 
-  const matchExplain = text.match(regexExplain);
+  const matchExplain = text.match(explainRegex);
 
   if (matchExplain) {
     const query = matchExplain[3].trim();
@@ -250,14 +255,14 @@ bot.on("message:text", async (ctx) => {
 
     const { rows } = await pool.query("SELECT COUNT(*) FROM participants");
 
-    console.log("📊 Всего участников в базе:", rows[0].count);
+    console.log("📊 Всего участников:", rows[0].count);
   } catch (err) {
-    console.error("Ошибка добавления участника:", err.message);
+    console.error("Ошибка сохранения участника:", err.message);
   }
 
   // ───── едома кто
-  const regexWho = /^едома кто\s+(.+)/i;
-  const matchWho = text.match(regexWho);
+  const whoRegex = /^едома кто\s+(.+)/i;
+  const matchWho = text.match(whoRegex);
 
   if (!matchWho) return;
 
