@@ -20,9 +20,7 @@ if (
 // ──────────────────────────────────────────────
 // PostgreSQL
 // ──────────────────────────────────────────────
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 (async () => {
   try {
@@ -34,7 +32,6 @@ const pool = new Pool({
         last_name TEXT
       );
     `);
-
     console.log("✅ Таблица participants готова");
   } catch (err) {
     console.error("❌ Ошибка создания таблицы:", err.message);
@@ -50,7 +47,12 @@ app.use(express.json());
 // ──────────────────────────────────────────────
 // Telegram Bot
 // ──────────────────────────────────────────────
-const bot = new Bot(process.env.TELEGRAM_TOKEN);
+const bot = new Bot(process.env.TELEGRAM_TOKEN, { client: { timeout: 60000 } });
+
+// ──────────────────────────────────────────────
+// Модель AI (жёстко задана)
+// ──────────────────────────────────────────────
+const AI_MODEL = "gpt-5.2-chat-latest";
 
 // ──────────────────────────────────────────────
 // Темы викторины
@@ -77,28 +79,23 @@ const allowedTopics = [
 // Генерация викторины
 // ──────────────────────────────────────────────
 async function generateQuiz(topic = "") {
-  if (!topic.trim()) {
+  if (!topic.trim())
     topic = allowedTopics[Math.floor(Math.random() * allowedTopics.length)];
-  }
 
-  const systemPrompt = `Ты — генератор викторин. Отвечай строго JSON.`;
-
-  const userPrompt = `
-Создай 1 вопрос средней сложности по теме "${topic}".
-
+  const systemPrompt = "Ты — генератор викторин. Отвечай строго JSON.";
+  const userPrompt = `Создай 1 вопрос средней сложности по теме "${topic}".
 Формат:
 {
   "question": "...",
   "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
   "correctIndex": 0-3,
   "explanation": "..."
-}
-`;
+}`;
 
   const response = await axios.post(
     "https://api.ai-mediator.ru/v1/chat/completions",
     {
-      model: "gpt-4o-mini",
+      model: AI_MODEL,
       temperature: 0.7,
       max_tokens: 600,
       messages: [
@@ -111,16 +108,15 @@ async function generateQuiz(topic = "") {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
       },
+      timeout: 60000,
     },
   );
 
   let content = response.data.choices?.[0]?.message?.content?.trim() || "";
-
   content = content
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
-
   return JSON.parse(content);
 }
 
@@ -138,15 +134,13 @@ async function getWordExplanation(query) {
 Если информации нет — пиши: "Нет достоверной информации".
 `;
 
-  const userPrompt = `
-Дай краткое энциклопедическое объяснение по типу "*слово* - это...":
-${query}
-`;
+  const userPrompt = `Дай краткое энциклопедическое объяснение по типу "*слово* - это...":
+${query}`;
 
   const response = await axios.post(
     "https://api.ai-mediator.ru/v1/chat/completions",
     {
-      model: "gpt-5.2-chat-latest",
+      model: AI_MODEL,
       temperature: 0.2,
       max_tokens: 300,
       messages: [
@@ -159,38 +153,33 @@ ${query}
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
       },
+      timeout: 60000,
     },
   );
 
   let content =
     response.data.choices?.[0]?.message?.content?.trim() ||
     "Нет достоверной информации";
-
-  content = content
+  return content
     .replace(/^```.*?\n?/g, "")
     .replace(/```$/g, "")
     .trim();
-
-  return content;
 }
 
+// ──────────────────────────────────────────────
 // Команда /quiz
 // ──────────────────────────────────────────────
 bot.command("quiz", async (ctx) => {
   const topic = ctx.message.text.slice("/quiz".length).trim();
-
   try {
     const loading = await ctx.reply("Генерирую вопрос... ⏳");
-
     const quiz = await generateQuiz(topic);
-
     await ctx.replyWithPoll(quiz.question, quiz.options, {
       type: "quiz",
       correct_option_id: quiz.correctIndex,
       explanation: quiz.explanation,
       is_anonymous: false,
     });
-
     await ctx.api
       .deleteMessage(ctx.chat.id, loading.message_id)
       .catch(() => {});
@@ -201,25 +190,20 @@ bot.command("quiz", async (ctx) => {
 });
 
 // ──────────────────────────────────────────────
-// Обработчик текста
+// Обработчик сообщений
 // ──────────────────────────────────────────────
 bot.on("message:text", async (ctx) => {
   const text = ctx.message.text.trim();
 
-  // ───── Энциклопедия
+  // Энциклопедия
   const regexExplain =
     /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
-
   const matchExplain = text.match(regexExplain);
-
   if (matchExplain) {
     const query = matchExplain[3].trim();
-
     try {
       await ctx.replyWithChatAction("typing");
-
       const explanation = await getWordExplanation(query);
-
       await ctx.reply(
         explanation.charAt(0).toUpperCase() + explanation.slice(1),
       );
@@ -227,18 +211,14 @@ bot.on("message:text", async (ctx) => {
       console.error("Ошибка explain:", err.message);
       await ctx.reply("Не удалось найти информацию 😔");
     }
-
     return;
   }
 
-  // ───── Сохраняем пользователя
+  // Сохраняем пользователя
   try {
     const user = ctx.message.from;
-
     await pool.query(
-      `INSERT INTO participants(user_id, username, first_name, last_name)
-       VALUES($1,$2,$3,$4)
-       ON CONFLICT (user_id) DO NOTHING`,
+      `INSERT INTO participants(user_id, username, first_name, last_name) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
       [
         user.id,
         user.username || null,
@@ -246,38 +226,29 @@ bot.on("message:text", async (ctx) => {
         user.last_name || null,
       ],
     );
-
     const { rows } = await pool.query("SELECT COUNT(*) FROM participants");
-
     console.log("📊 Всего участников в базе:", rows[0].count);
   } catch (err) {
     console.error("Ошибка добавления участника:", err.message);
   }
 
-  // ───── едома кто
+  // едома кто
   const regexWho = /^едома кто\s+(.+)/i;
   const matchWho = text.match(regexWho);
-
   if (!matchWho) return;
-
   const query = matchWho[1].trim();
-
   try {
     const { rows } = await pool.query(
       "SELECT username, first_name FROM participants ORDER BY RANDOM() LIMIT 1",
     );
-
     if (rows.length === 0) {
       await ctx.reply("Нет участников в базе 😔");
       return;
     }
-
     const user = rows[0];
-
     const display = user.username
       ? `@${user.username}`
       : `${user.first_name || "Неизвестный"}`;
-
     await ctx.reply(`${query} - ${display}`);
   } catch (err) {
     console.error("Ошибка выбора участника:", err.message);
@@ -289,17 +260,13 @@ bot.on("message:text", async (ctx) => {
 // Webhook
 // ──────────────────────────────────────────────
 app.use(`/bot/${process.env.TELEGRAM_TOKEN}`, webhookCallback(bot, "express"));
-
 app.get("/", (req, res) => res.send("Бот работает"));
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 
 async function setupWebhook() {
   await bot.api.deleteWebhook({ drop_pending_updates: true });
-
   const url = `${process.env.APP_URL}/bot/${process.env.TELEGRAM_TOKEN}`;
-
   await bot.api.setWebhook(url);
-
   console.log("✅ Webhook установлен:", url);
 }
 
@@ -309,7 +276,6 @@ setupWebhook();
 // Запуск сервера
 // ──────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("🚀 Сервер запущен на порту", PORT);
-});
+app.listen(PORT, "0.0.0.0", () =>
+  console.log("🚀 Сервер запущен на порту", PORT),
+);
