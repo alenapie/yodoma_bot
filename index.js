@@ -20,7 +20,9 @@ if (
 // ──────────────────────────────────────────────
 // PostgreSQL
 // ──────────────────────────────────────────────
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
 
 (async () => {
   try {
@@ -47,12 +49,7 @@ app.use(express.json());
 // ──────────────────────────────────────────────
 // Telegram Bot
 // ──────────────────────────────────────────────
-const bot = new Bot(process.env.TELEGRAM_TOKEN, { client: { timeout: 60000 } });
-
-// ──────────────────────────────────────────────
-// Модель AI (жёстко задана)
-// ──────────────────────────────────────────────
-const AI_MODEL = "gpt-5.2-chat-latest";
+const bot = new Bot(process.env.TELEGRAM_TOKEN);
 
 // ──────────────────────────────────────────────
 // Темы викторины
@@ -78,13 +75,12 @@ const allowedTopics = [
 // ──────────────────────────────────────────────
 // Генерация викторины
 // ──────────────────────────────────────────────
-async function generateQuiz(topic = "") {
+async function generateQuiz(topic = "", model = "gpt-5.2-chat-latest") {
   if (!topic.trim())
     topic = allowedTopics[Math.floor(Math.random() * allowedTopics.length)];
 
-  const systemPrompt = "Ты — генератор викторин. Отвечай строго JSON.";
-  const userPrompt = `Создай 1 вопрос средней сложности по теме "${topic}".
-Формат:
+  const systemPrompt = `Ты — генератор викторин. Отвечай строго JSON.`;
+  const userPrompt = `Создай 1 вопрос средней сложности по теме "${topic}". Формат:
 {
   "question": "...",
   "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
@@ -92,10 +88,11 @@ async function generateQuiz(topic = "") {
   "explanation": "..."
 }`;
 
+  const startTime = Date.now();
   const response = await axios.post(
     "https://api.ai-mediator.ru/v1/chat/completions",
     {
-      model: AI_MODEL,
+      model: model,
       temperature: 0.7,
       max_tokens: 600,
       messages: [
@@ -108,8 +105,13 @@ async function generateQuiz(topic = "") {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
       },
-      timeout: 60000,
+      timeout: 60000, // 60 секунд
     },
+  );
+  const endTime = Date.now();
+
+  console.log(
+    `✅ Викторина: модель "${response.data.model}" отработала за ${endTime - startTime}ms`,
   );
 
   let content = response.data.choices?.[0]?.message?.content?.trim() || "";
@@ -123,7 +125,7 @@ async function generateQuiz(topic = "") {
 // ──────────────────────────────────────────────
 // Энциклопедическое объяснение
 // ──────────────────────────────────────────────
-async function getWordExplanation(query) {
+async function getWordExplanation(query, model = "gpt-5.2-chat-latest") {
   const systemPrompt = `
 Ты — энциклопедический справочник.
 Пиши нейтральным стилем, как в Википедии.
@@ -133,14 +135,13 @@ async function getWordExplanation(query) {
 1–3 предложения.
 Если информации нет — пиши: "Нет достоверной информации".
 `;
+  const userPrompt = `Дай краткое энциклопедическое объяснение по типу "*слово* - это...": ${query}`;
 
-  const userPrompt = `Дай краткое энциклопедическое объяснение по типу "*слово* - это...":
-${query}`;
-
+  const startTime = Date.now();
   const response = await axios.post(
     "https://api.ai-mediator.ru/v1/chat/completions",
     {
-      model: AI_MODEL,
+      model: model,
       temperature: 0.2,
       max_tokens: 300,
       messages: [
@@ -156,14 +157,20 @@ ${query}`;
       timeout: 60000,
     },
   );
+  const endTime = Date.now();
+
+  console.log(
+    `✅ Энциклопедия: модель "${response.data.model}" отработала за ${endTime - startTime}ms`,
+  );
 
   let content =
     response.data.choices?.[0]?.message?.content?.trim() ||
     "Нет достоверной информации";
-  return content
+  content = content
     .replace(/^```.*?\n?/g, "")
     .replace(/```$/g, "")
     .trim();
+  return content;
 }
 
 // ──────────────────────────────────────────────
@@ -190,7 +197,7 @@ bot.command("quiz", async (ctx) => {
 });
 
 // ──────────────────────────────────────────────
-// Обработчик сообщений
+// Обработчик текста
 // ──────────────────────────────────────────────
 bot.on("message:text", async (ctx) => {
   const text = ctx.message.text.trim();
@@ -214,45 +221,56 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
-  // Сохраняем пользователя
-  try {
-    const user = ctx.message.from;
-    await pool.query(
-      `INSERT INTO participants(user_id, username, first_name, last_name) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
-      [
-        user.id,
-        user.username || null,
-        user.first_name || null,
-        user.last_name || null,
-      ],
-    );
-    const { rows } = await pool.query("SELECT COUNT(*) FROM participants");
-    console.log("📊 Всего участников в базе:", rows[0].count);
-  } catch (err) {
-    console.error("Ошибка добавления участника:", err.message);
-  }
-
   // едома кто
   const regexWho = /^едома кто\s+(.+)/i;
   const matchWho = text.match(regexWho);
-  if (!matchWho) return;
-  const query = matchWho[1].trim();
-  try {
-    const { rows } = await pool.query(
-      "SELECT username, first_name FROM participants ORDER BY RANDOM() LIMIT 1",
-    );
-    if (rows.length === 0) {
-      await ctx.reply("Нет участников в базе 😔");
-      return;
+  if (matchWho) {
+    const query = matchWho[1].trim();
+    try {
+      await pool.query(
+        `INSERT INTO participants(user_id, username, first_name, last_name)
+         VALUES($1,$2,$3,$4)
+         ON CONFLICT (user_id) DO NOTHING`,
+        [
+          ctx.message.from.id,
+          ctx.message.from.username || null,
+          ctx.message.from.first_name || null,
+          ctx.message.from.last_name || null,
+        ],
+      );
+
+      const { rows } = await pool.query(
+        "SELECT username, first_name FROM participants ORDER BY RANDOM() LIMIT 1",
+      );
+      if (rows.length === 0) return await ctx.reply("Нет участников в базе 😔");
+
+      const user = rows[0];
+      const display = user.username
+        ? `@${user.username}`
+        : `${user.first_name || "Неизвестный"}`;
+      await ctx.reply(`${query} - ${display}`);
+    } catch (err) {
+      console.error("Ошибка выбора участника:", err.message);
+      await ctx.reply("Не удалось выбрать участника 😔");
     }
-    const user = rows[0];
-    const display = user.username
-      ? `@${user.username}`
-      : `${user.first_name || "Неизвестный"}`;
-    await ctx.reply(`${query} - ${display}`);
+    return;
+  }
+
+  // Сохраняем пользователя без запроса к AI
+  try {
+    await pool.query(
+      `INSERT INTO participants(user_id, username, first_name, last_name)
+       VALUES($1,$2,$3,$4)
+       ON CONFLICT (user_id) DO NOTHING`,
+      [
+        ctx.message.from.id,
+        ctx.message.from.username || null,
+        ctx.message.from.first_name || null,
+        ctx.message.from.last_name || null,
+      ],
+    );
   } catch (err) {
-    console.error("Ошибка выбора участника:", err.message);
-    await ctx.reply("Не удалось выбрать участника 😔");
+    console.error("Ошибка добавления участника:", err.message);
   }
 });
 
