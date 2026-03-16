@@ -146,7 +146,7 @@ ${query}
   const response = await axios.post(
     "https://api.ai-mediator.ru/v1/chat/completions",
     {
-      model: "gpt-4o-mini",
+      model: "gpt-5.2-chat-latest",
       temperature: 0.2,
       max_tokens: 300,
       messages: [
