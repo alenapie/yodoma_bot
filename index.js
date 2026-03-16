@@ -98,7 +98,7 @@ async function generateQuiz(topic = "") {
   const response = await axios.post(
     "https://api.ai-mediator.ru/v1/chat/completions",
     {
-      model: "gpt-5.3-chat-latest",
+      model: "gpt-4o-mini",
       temperature: 0.7,
       max_tokens: 600,
       messages: [
@@ -146,7 +146,7 @@ ${query}
   const response = await axios.post(
     "https://api.ai-mediator.ru/v1/chat/completions",
     {
-      model: "gpt-5.3-chat-latest",
+      model: "gpt-4o-mini",
       temperature: 0.2,
       max_tokens: 300,
       messages: [
@@ -174,7 +174,6 @@ ${query}
   return content;
 }
 
-// ──────────────────────────────────────────────
 // Команда /quiz
 // ──────────────────────────────────────────────
 bot.command("quiz", async (ctx) => {
