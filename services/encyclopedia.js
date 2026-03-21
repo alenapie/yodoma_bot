@@ -1,51 +1,36 @@
 import axios from "axios";
 
-const allowedTopics = [
-  "история",
-  "география",
-  "страны",
-  "столицы",
-  "животные",
-  "еда",
-  "спорт",
-  "музыка",
-  "кино",
-  "литература",
-  "искусство",
-  "знаменитости",
-  "путешествия",
-  "традиции",
-  "праздники",
-];
+export async function getWordExplanation(query) {
+  const systemPrompt = `
+Ты — энциклопедический справочник.
+Пиши нейтральным стилем, 1–3 предложения.
+Если нет информации — пиши: "Нет достоверной информации".
+`;
 
-export async function generateQuiz(topic = "") {
-  if (!topic.trim())
-    topic = allowedTopics[Math.floor(Math.random() * allowedTopics.length)];
-
-  const systemPrompt = `Ты — генератор викторин. Отвечай строго JSON.`;
-  const userPrompt = `Создай 1 вопрос средней сложности по теме "${topic}". Формат JSON`;
+  const userPrompt = `Дай краткое объяснение: ${query}`;
 
   const response = await axios.post(
     "https://api.ai-mediator.ru/v1/chat/completions",
     {
       model: "gpt-5.2-chat-latest",
-      temperature: 0.7,
-      max_tokens: 600,
+      temperature: 0.2,
+      max_tokens: 300,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
     },
     {
-      headers: { Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}` },
+      headers: {
+        Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
+      },
       timeout: 60000,
     },
   );
 
-  let content = response.data.choices?.[0]?.message?.content?.trim() || "";
-  content = content
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
-  return JSON.parse(content);
+  let content =
+    response.data.choices?.[0]?.message?.content?.trim() ||
+    "Нет достоверной информации";
+
+  return content;
 }
