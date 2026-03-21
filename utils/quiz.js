@@ -22,6 +22,9 @@ export async function generateQuiz(topic = "") {
   if (!topic.trim())
     topic = allowedTopics[Math.floor(Math.random() * allowedTopics.length)];
 
+  const systemPrompt = `Ты — генератор викторин. Отвечай строго JSON.`;
+  const userPrompt = `Создай 1 вопрос средней сложности по теме "${topic}". Формат JSON`;
+
   const response = await axios.post(
     "https://api.ai-mediator.ru/v1/chat/completions",
     {
@@ -29,19 +32,13 @@ export async function generateQuiz(topic = "") {
       temperature: 0.7,
       max_tokens: 600,
       messages: [
-        {
-          role: "system",
-          content: "Ты — генератор викторин. Отвечай строго JSON.",
-        },
-        {
-          role: "user",
-          content: `Создай 1 вопрос средней сложности по теме "${topic}". Формат JSON`,
-        },
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
       ],
     },
     {
       headers: { Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}` },
-      timeout: 60000, // таймаут 1 минута
+      timeout: 60000,
     },
   );
 

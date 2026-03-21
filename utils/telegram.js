@@ -1,13 +1,16 @@
 import { Bot } from "grammy";
-import pool from "../services/db.js";
-import { generateQuiz } from "../services/quiz.js";
-import { getWordExplanation } from "../services/encyclopedia.js";
+import pool, { initDB } from "../services/db.js";
+import { generateQuiz } from "./quiz.js";
+import { getWordExplanation } from "./encyclopedia.js";
 
 export const bot = new Bot(process.env.TELEGRAM_TOKEN, {
   client: { timeout: 60000 },
 });
 
-export function setupBot() {
+export async function setupBot() {
+  // Гарантируем, что таблица participants создана
+  await initDB();
+
   // /quiz
   bot.command("quiz", async (ctx) => {
     const topic = ctx.message.text.slice("/quiz".length).trim();
@@ -24,19 +27,19 @@ export function setupBot() {
         .deleteMessage(ctx.chat.id, loading.message_id)
         .catch(() => {});
     } catch (err) {
-      console.error(err);
+      console.error("Ошибка /quiz:", err.message);
       await ctx.reply("Не удалось создать вопрос 😔");
     }
   });
 
-  // текстовые сообщения
+  // Сообщения
   bot.on("message:text", async (ctx) => {
     const text = ctx.message.text.trim();
 
     // Энциклопедия
-    const regexExplain =
-      /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
-    const matchExplain = text.match(regexExplain);
+    const matchExplain = text.match(
+      /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i,
+    );
     if (matchExplain) {
       const query = matchExplain[3].trim();
       try {
@@ -53,10 +56,8 @@ export function setupBot() {
     }
 
     // едома кто
-    const regexWho = /^едома кто\s+(.+)/i;
-    const matchWho = text.match(regexWho);
+    const matchWho = text.match(/^едома кто\s+(.+)/i);
     if (!matchWho) return;
-
     const query = matchWho[1].trim();
     const user = ctx.message.from;
 
@@ -65,10 +66,10 @@ export function setupBot() {
         `SELECT 1 FROM participants WHERE user_id=$1 AND chat_id=$2`,
         [user.id, ctx.chat.id],
       );
-      if (!rowCount)
+      if (!rowCount) {
         await pool.query(
           `INSERT INTO participants(user_id, chat_id, username, first_name, last_name)
-         VALUES($1,$2,$3,$4,$5)`,
+           VALUES($1,$2,$3,$4,$5)`,
           [
             user.id,
             ctx.chat.id,
@@ -77,6 +78,7 @@ export function setupBot() {
             user.last_name || null,
           ],
         );
+      }
 
       const { rows } = await pool.query(
         `SELECT username, first_name FROM participants WHERE chat_id=$1 ORDER BY RANDOM() LIMIT 1`,

@@ -2,13 +2,10 @@ import axios from "axios";
 
 export async function getWordExplanation(query) {
   const systemPrompt = `
-Ты — энциклопедический справочник.
-Пиши нейтральным стилем, как в Википедии.
-Без сленга и кавычек.
-1–3 предложения.
-Если информации нет — пиши: "Нет достоверной информации".
-`;
-  const userPrompt = `Дай краткое энциклопедическое объяснение по типу "*слово* - это...": ${query}`;
+Ты — энциклопедический справочник. Пиши нейтрально, 1–3 предложения. 
+Без сленга, без кавычек, без повторения термина в начале.`;
+
+  const userPrompt = `Дай краткое энциклопедическое объяснение: ${query}`;
 
   const response = await axios.post(
     "https://api.ai-mediator.ru/v1/chat/completions",
@@ -30,9 +27,8 @@ export async function getWordExplanation(query) {
   let content =
     response.data.choices?.[0]?.message?.content?.trim() ||
     "Нет достоверной информации";
-  content = content
+  return content
     .replace(/^```.*?\n?/g, "")
     .replace(/```$/g, "")
     .trim();
-  return content;
 }
