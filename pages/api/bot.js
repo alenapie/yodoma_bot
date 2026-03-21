@@ -1,10 +1,17 @@
-import { bot } from "../../utils/telegram.js";
-import pool, { initDB } from "../../services/db.js";
+import { bot, setupBot } from "../../utils/telegram.js";
+import { initDB } from "../../services/db.js";
+
+setupBot();
 
 export default async function handler(req, res) {
-  await initDB(); // гарантируем, что таблица есть
-  await bot.handleUpdate(req.body);
-  res.status(200).send("ok");
+  try {
+    await initDB();
+    await bot.handleUpdate(req.body);
+    res.status(200).send("ok");
+  } catch (err) {
+    console.error("Ошибка webhook:", err);
+    res.status(500).send("Internal Server Error");
+  }
 }
 
 export const config = { api: { bodyParser: true } };
