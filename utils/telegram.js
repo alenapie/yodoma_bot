@@ -8,7 +8,7 @@ export const bot = new Bot(process.env.TELEGRAM_TOKEN, {
 });
 
 export function setupBot() {
-  // Команда викторины
+  // /quiz
   bot.command("quiz", async (ctx) => {
     const topic = ctx.message.text.slice("/quiz".length).trim();
     try {
@@ -24,12 +24,12 @@ export function setupBot() {
         .deleteMessage(ctx.chat.id, loading.message_id)
         .catch(() => {});
     } catch (err) {
-      console.error("Ошибка /quiz:", err.message);
+      console.error(err);
       await ctx.reply("Не удалось создать вопрос 😔");
     }
   });
 
-  // Текстовые сообщения
+  // текстовые сообщения
   bot.on("message:text", async (ctx) => {
     const text = ctx.message.text.trim();
 
@@ -65,10 +65,10 @@ export function setupBot() {
         `SELECT 1 FROM participants WHERE user_id=$1 AND chat_id=$2`,
         [user.id, ctx.chat.id],
       );
-
       if (!rowCount)
         await pool.query(
-          `INSERT INTO participants(user_id, chat_id, username, first_name, last_name) VALUES($1,$2,$3,$4,$5)`,
+          `INSERT INTO participants(user_id, chat_id, username, first_name, last_name)
+         VALUES($1,$2,$3,$4,$5)`,
           [
             user.id,
             ctx.chat.id,
@@ -82,7 +82,6 @@ export function setupBot() {
         `SELECT username, first_name FROM participants WHERE chat_id=$1 ORDER BY RANDOM() LIMIT 1`,
         [ctx.chat.id],
       );
-
       if (!rows.length) return await ctx.reply("Нет участников в базе 😔");
 
       const randomUser = rows[0];
