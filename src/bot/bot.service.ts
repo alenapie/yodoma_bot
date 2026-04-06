@@ -158,6 +158,7 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
       const url = `${process.env.APP_URL}/bot/${process.env.TELEGRAM_TOKEN}`;
       await this.bot.api.setWebhook(url);
       console.log("✅ Webhook установлен:", url);
+      console.log("✅ Webhook установлен:", url);
     } catch (err) {
       console.error("❌ Ошибка установки webhook:", err);
     }
