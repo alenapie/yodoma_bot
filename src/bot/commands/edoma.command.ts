@@ -1,39 +1,33 @@
-import { Bot, Context } from "grammy";
+import { Context } from "grammy";
 import { Pool } from "pg";
 
 export class EdomaCommand {
-  constructor(
-    private bot: Bot<Context>,
-    private pool: Pool,
-  ) {
-    console.log("✅ EdomaCommand инициализирован"); // Проверка регистрации команды
-    this.register();
+  private readonly regexWho =
+    /^(едома|ёдома)\s+кто(?!\s+такой)(?!\s+такая)(?!\s+что)[,:]?\s+(.+)/i;
+
+  constructor(private pool: Pool) {
+    console.log("✅ EdomaCommand инициализирован");
   }
 
-  private register() {
-    // Ловим только текстовые сообщения
-    this.bot.on("message:text", async (ctx: Context) => {
-      const text = ctx.message?.text?.trim();
+  private normalize(text: string) {
+    return text.replace(/^@\w+\s+/i, "").trim();
+  }
 
-      if (!text) return;
+  public isMatch(text: string) {
+    return this.regexWho.test(this.normalize(text));
+  }
 
-      // В группах с анонимными админами поле from может отсутствовать
-      // (вместо него приходит sender_chat), поэтому не выходим раньше времени.
-      const normalizedText = text.replace(/^@\w+\s+/i, "").trim();
+  public async handle(ctx: Context, text: string) {
+    const normalizedText = this.normalize(text);
+    console.log("📩 EdomaCommand получил текст:", normalizedText);
 
-      console.log("📩 EdomaCommand получил текст:", normalizedText);
+    const match = normalizedText.match(this.regexWho);
+    if (!match) return;
 
-      // Регулярка для "едома/ёдома кто ..." (исключаем энциклопедические формы)
-      const match = normalizedText.match(
-        /^(едома|ёдома)\s+кто(?!\s+такой)(?!\s+такая)(?!\s+что)[,:]?\s+(.+)/i,
-      );
-      if (!match) return;
+    const query = match[2].trim();
+    console.log("🔍 Запрос 'едома кто':", query);
 
-      const query = match[2].trim();
-      console.log("🔍 Запрос 'едома кто':", query);
-
-      await this.handleWhoRequest(ctx, query);
-    });
+    await this.handleWhoRequest(ctx, query);
   }
 
   private async handleWhoRequest(ctx: Context, query: string) {
