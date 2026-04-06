@@ -20,8 +20,10 @@ export class EdomaCommand {
 
       console.log("📩 EdomaCommand получил текст:", text);
 
-      // Регулярка для "едома кто ..."
-      const match = text.match(/^едома кто\s+(.+)/i);
+      // Регулярка для "едома кто ..." **но исключаем варианты для энциклопедии**
+      const match = text.match(
+        /^едома кто(?!\s+такой)(?!\s+такая)(?!\s+что)\s+(.+)/i,
+      );
       if (!match) return;
 
       const query = match[1].trim();

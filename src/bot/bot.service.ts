@@ -48,8 +48,8 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
   async onModuleInit() {
     // Регистрируем команды
     new QuizCommand(this.bot, this.pool, this.allowedTopics);
-    new EdomaCommand(this.bot, this.pool);
     new ExplainCommand(this.bot);
+    new EdomaCommand(this.bot, this.pool);
   }
 
   async onApplicationBootstrap() {
