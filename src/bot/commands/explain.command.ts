@@ -3,14 +3,20 @@ import axios from "axios";
 
 export class ExplainCommand {
   constructor(bot: Bot) {
-    bot.on("message:text", async (ctx) => {
+    bot.on("message:text", async (ctx, next) => {
       const text = ctx.message?.text?.trim();
-      if (!text) return;
+      if (!text) {
+        await next();
+        return;
+      }
 
       const regexExplain =
         /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
       const match = text.match(regexExplain);
-      if (!match) return;
+      if (!match) {
+        await next();
+        return;
+      }
 
       const query = match[3].trim();
       try {

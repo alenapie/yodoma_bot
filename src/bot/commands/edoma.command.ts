@@ -11,20 +11,6 @@ export class EdomaCommand {
   }
 
   private register() {
-    // Fallback-команда для групп с privacy mode, где обычный текст без / не приходит боту
-    this.bot.command("kto", async (ctx: Context) => {
-      const text = ctx.message?.text?.trim();
-      if (!text) return;
-
-      const query = text.slice("/kto".length).trim();
-      if (!query) {
-        await ctx.reply("Напиши запрос после команды, например: /kto лох");
-        return;
-      }
-
-      await this.handleWhoRequest(ctx, query);
-    });
-
     // Ловим только текстовые сообщения
     this.bot.on("message:text", async (ctx: Context) => {
       const text = ctx.message?.text?.trim();
