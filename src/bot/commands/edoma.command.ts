@@ -16,12 +16,16 @@ export class EdomaCommand {
       const text = ctx.message?.text?.trim();
       const from = ctx.message?.from;
 
-      if (!text || !from) return;
+      if (!text) return;
 
-      console.log("📩 EdomaCommand получил текст:", text);
+      // В группах с анонимными админами поле from может отсутствовать
+      // (вместо него приходит sender_chat), поэтому не выходим раньше времени.
+      const normalizedText = text.replace(/^@\w+\s+/i, "").trim();
+
+      console.log("📩 EdomaCommand получил текст:", normalizedText);
 
       // Регулярка для "едома/ёдома кто ..." (исключаем энциклопедические формы)
-      const match = text.match(
+      const match = normalizedText.match(
         /^(едома|ёдома)\s+кто(?!\s+такой)(?!\s+такая)(?!\s+что)[,:]?\s+(.+)/i,
       );
       if (!match) return;
@@ -30,18 +34,20 @@ export class EdomaCommand {
       console.log("🔍 Запрос 'едома кто':", query);
 
       try {
-        // Сохраняем пользователя в базе
-        await this.pool.query(
-          `INSERT INTO participants(user_id, username, first_name, last_name)
-           VALUES($1,$2,$3,$4) ON CONFLICT (user_id) DO NOTHING`,
-          [
-            from.id,
-            from.username || null,
-            from.first_name || null,
-            from.last_name || null,
-          ],
-        );
-        console.log("💾 Пользователь сохранён:", from.id);
+        // Сохраняем пользователя в базе, если Telegram передал from
+        if (from) {
+          await this.pool.query(
+            `INSERT INTO participants(user_id, username, first_name, last_name)
+             VALUES($1,$2,$3,$4) ON CONFLICT (user_id) DO NOTHING`,
+            [
+              from.id,
+              from.username || null,
+              from.first_name || null,
+              from.last_name || null,
+            ],
+          );
+          console.log("💾 Пользователь сохранён:", from.id);
+        }
 
         // Выбираем случайного участника
         const { rows } = await this.pool.query(
