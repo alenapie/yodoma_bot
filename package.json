@@ -1,26 +1,27 @@
 {
   "name": "yodoma_bot",
   "version": "1.0.0",
+  "description": "Telegram bot на NestJS",
+  "main": "dist/main.js",
   "scripts": {
     "start": "nest start",
-    "start:dev": "nest start --watch"
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main.js",
+    "build": "nest build"
   },
   "dependencies": {
-    "@nestjs/axios": "^4.0.1",
-    "@nestjs/common": "^11.1.18",
-    "@nestjs/core": "^11.1.18",
-    "@nestjs/platform-express": "^11.1.18",
-    "axios": "^1.14.0",
-    "grammy": "^1.42.0",
-    "pg": "^8.20.0",
-    "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "@nestjs/common": "^10.2.0",
+    "@nestjs/core": "^10.2.0",
+    "@nestjs/platform-express": "^10.2.0",
+    "axios": "^1.7.0",
+    "grammy": "^1.20.0",
+    "pg": "^8.12.0",
+    "reflect-metadata": "^0.1.13",
+    "rxjs": "^7.8.0"
   },
   "devDependencies": {
-    "@nestjs/cli": "^11.0.17",
-    "@types/express": "^5.0.6",
-    "@types/node": "^25.5.2",
-    "@types/pg": "^8.20.0",
-    "typescript": "^6.0.2"
+    "@nestjs/cli": "^10.2.0",
+    "typescript": "^5.2.0",
+    "@types/node": "^20.3.0"
   }
 }
