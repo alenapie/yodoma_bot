@@ -3,60 +3,48 @@ import { Pool } from "pg";
 
 export class EdomaCommand {
   constructor(
-    private bot: Bot,
+    private bot: Bot<Context>,
     private pool: Pool,
   ) {
     this.register();
   }
 
   private register() {
-    this.bot.on("message:text", async (ctx: Context) => {
-      console.log("🔹 Получено сообщение:", ctx.message?.text);
+    this.bot.on("message", async (ctx: Context) => {
+      if (!ctx.message?.text) return;
 
-      // Проверяем, что это сообщение с текстом
-      if (!ctx.message || !ctx.message.text) {
-        console.log("⚠️ ctx.message или текст отсутствует");
-        return;
-      }
+      const from = ctx.message.from;
+      if (!from) return;
 
       const text = ctx.message.text.trim();
+      console.log("Получен текст:", text);
 
-      // Проверяем команду "едома кто"
-      const matchWho = text.match(/^едома кто\s+(.+)/i);
-      if (!matchWho) return;
+      const match = text.match(/^едома кто\s+(.+)/i);
+      if (!match) return;
 
-      const query = matchWho[1].trim();
-      if (!query) {
-        console.log("⚠️ Не удалось извлечь слово после 'едома кто'");
-        return;
-      }
-
-      console.log("🔹 Команда 'едома кто' с запросом:", query);
+      const query = match[1].trim();
+      console.log("Запрос 'едома кто':", query);
 
       try {
-        // Сохраняем пользователя в базу
+        // Сохраняем пользователя
         await this.pool.query(
           `INSERT INTO participants(user_id, username, first_name, last_name)
            VALUES($1,$2,$3,$4) ON CONFLICT (user_id) DO NOTHING`,
           [
-            ctx.message.from.id,
-            ctx.message.from.username || null,
-            ctx.message.from.first_name || null,
-            ctx.message.from.last_name || null,
+            from.id,
+            from.username || null,
+            from.first_name || null,
+            from.last_name || null,
           ],
-        );
-        console.log(
-          "✅ Пользователь добавлен или уже есть в базе:",
-          ctx.message.from.id,
         );
 
         // Выбираем случайного участника
         const { rows } = await this.pool.query(
           "SELECT username, first_name FROM participants ORDER BY RANDOM() LIMIT 1",
         );
-        if (!rows.length) {
-          console.log("⚠️ В базе нет участников");
-          await ctx.reply("Нет участников в базе 😔");
+
+        if (rows.length === 0) {
+          await ctx.reply("Пока нет участников 😔");
           return;
         }
 
@@ -64,12 +52,11 @@ export class EdomaCommand {
         const display = user.username
           ? `@${user.username}`
           : `${user.first_name || "Неизвестный"}`;
-
-        console.log("🔹 Выбран пользователь:", display);
+        console.log("Выбран участник:", display);
 
         await ctx.reply(`${query} - ${display}`);
       } catch (err: any) {
-        console.error("❌ Ошибка при выполнении 'едома кто':", err.message);
+        console.error("Ошибка команды 'едома кто':", err.message);
         await ctx.reply("Не удалось выбрать участника 😔");
       }
     });
