@@ -1,9 +1,17 @@
+// edoma.command.ts
 import { Bot } from "grammy";
 import { Pool } from "pg";
 
 export class EdomaCommand {
-  constructor(bot: Bot, pool: Pool) {
-    bot.on("message:text", async (ctx) => {
+  constructor(
+    private bot: Bot,
+    private pool?: Pool,
+  ) {
+    this.register();
+  }
+
+  private register() {
+    this.bot.on("message:text", async (ctx) => {
       const text = ctx.message?.text?.trim();
       if (!text) return;
 
@@ -12,9 +20,13 @@ export class EdomaCommand {
       if (!match) return;
 
       const query = match[1].trim();
+      if (!this.pool) {
+        await ctx.reply("Ошибка: база не подключена 😔");
+        return;
+      }
+
       try {
-        // Сохраняем пользователя
-        await pool.query(
+        await this.pool.query(
           `INSERT INTO participants(user_id, username, first_name, last_name)
            VALUES($1,$2,$3,$4) ON CONFLICT (user_id) DO NOTHING`,
           [
@@ -25,8 +37,7 @@ export class EdomaCommand {
           ],
         );
 
-        // Выбираем случайного
-        const { rows } = await pool.query(
+        const { rows } = await this.pool.query(
           "SELECT username, first_name FROM participants ORDER BY RANDOM() LIMIT 1",
         );
         const user = rows[0];
@@ -35,7 +46,7 @@ export class EdomaCommand {
           : `${user.first_name || "Неизвестный"}`;
         await ctx.reply(`${query} - ${display}`);
       } catch (err: any) {
-        console.error("Ошибка /edoma:", err.message);
+        console.error("Ошибка выбора участника:", err.message);
         await ctx.reply("Не удалось выбрать участника 😔");
       }
     });
