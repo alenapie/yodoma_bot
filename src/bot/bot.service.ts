@@ -4,13 +4,13 @@ import {
   OnModuleInit,
   OnApplicationBootstrap,
 } from "@nestjs/common";
-import { Bot } from "grammy";
+import { Bot, Context } from "grammy";
 import axios from "axios";
 import { Pool } from "pg";
 
 @Injectable()
 export class BotService implements OnModuleInit, OnApplicationBootstrap {
-  private bot: Bot;
+  private bot: Bot<Context>;
 
   private allowedTopics = [
     "история",
@@ -36,10 +36,11 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
       !process.env.AI_MEDIATOR_API_KEY ||
       !process.env.APP_URL
     ) {
-      throw new Error("❌ Отсутствуют переменные окружения!");
+      console.error("❌ Отсутствуют переменные окружения!");
+      process.exit(1);
     }
 
-    this.bot = new Bot(process.env.TELEGRAM_TOKEN);
+    this.bot = new Bot<Context>(process.env.TELEGRAM_TOKEN);
   }
 
   async onModuleInit() {
@@ -51,35 +52,30 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
   }
 
   private registerCommands() {
-    // /quiz
     this.bot.command("quiz", async (ctx) => {
-      const topic = ctx.message?.text?.slice("/quiz".length).trim() || "";
+      if (!ctx.message?.text) return;
+      const topic = ctx.message.text.slice("/quiz".length).trim();
       try {
         const loading = await ctx.reply("Генерирую вопрос... ⏳");
         const quiz = await this.generateQuiz(topic);
-        if (!quiz) throw new Error("Quiz пустой");
-
-        // ✅ Исправлено: correct_option_ids как массив
         await ctx.replyWithPoll(quiz.question, quiz.options, {
           type: "quiz",
-          correct_option_ids: [quiz.correctIndex],
+          correct_option_ids: [quiz.correctIndex], // грамми 1.27+
           explanation: quiz.explanation,
           is_anonymous: false,
         });
-
         await ctx.api
           .deleteMessage(ctx.chat.id, loading.message_id)
           .catch(() => {});
-      } catch (err: any) {
-        console.error("Ошибка /quiz:", err.message);
+      } catch (err) {
+        console.error("Ошибка /quiz:", err);
         await ctx.reply("Не удалось создать вопрос 😔");
       }
     });
 
-    // Обработка текста
     this.bot.on("message:text", async (ctx) => {
-      const text = ctx.message?.text?.trim();
-      if (!text) return;
+      if (!ctx.message?.text) return;
+      const text = ctx.message.text.trim();
 
       // едома что/кто
       const regexExplain =
@@ -93,8 +89,8 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
           await ctx.reply(
             explanation.charAt(0).toUpperCase() + explanation.slice(1),
           );
-        } catch (err: any) {
-          console.error("Ошибка explain:", err.message);
+        } catch (err) {
+          console.error("Ошибка explain:", err);
           await ctx.reply("Не удалось найти информацию 😔");
         }
         return;
@@ -118,10 +114,7 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
             ],
           );
 
-          const { rows } = await this.pool.query<{
-            username: string | null;
-            first_name: string | null;
-          }>(
+          const { rows } = await this.pool.query(
             "SELECT username, first_name FROM participants ORDER BY RANDOM() LIMIT 1",
           );
 
@@ -133,8 +126,8 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
             ? `@${user.username}`
             : `${user.first_name || "Неизвестный"}`;
           await ctx.reply(`${query} - ${display}`);
-        } catch (err: any) {
-          console.error("Ошибка выбора участника:", err.message);
+        } catch (err) {
+          console.error("Ошибка выбора участника:", err);
           await ctx.reply("Не удалось выбрать участника 😔");
         }
         return;
@@ -153,8 +146,8 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
             ctx.message.from.last_name || null,
           ],
         );
-      } catch (err: any) {
-        console.error("Ошибка добавления участника:", err.message);
+      } catch (err) {
+        console.error("Ошибка добавления участника:", err);
       }
     });
   }
@@ -165,9 +158,8 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
       const url = `${process.env.APP_URL}/bot/${process.env.TELEGRAM_TOKEN}`;
       await this.bot.api.setWebhook(url);
       console.log("✅ Webhook установлен:", url);
-    } catch (err: any) {
-      console.error("❌ Ошибка установки webhook:", err.message);
-      throw err;
+    } catch (err) {
+      console.error("❌ Ошибка установки webhook:", err);
     }
   }
 
@@ -187,45 +179,32 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
   "explanation": "..."
 }`;
 
-    try {
-      const startTime = Date.now();
-      const response = await axios.post<any>(
-        "https://api.ai-mediator.ru/v1/chat/completions",
-        {
-          model: "gpt-5.2-chat-latest",
-          temperature: 0.7,
-          max_tokens: 600,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
+    const response = await axios.post(
+      "https://api.ai-mediator.ru/v1/chat/completions",
+      {
+        model: "gpt-5.2-chat-latest",
+        temperature: 0.7,
+        max_tokens: 600,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
         },
-        {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
-          },
-          timeout: 60000,
-        },
-      );
-      const endTime = Date.now();
-      console.log(
-        `✅ Викторина: модель "${response.data.model}" отработала за ${
-          endTime - startTime
-        }ms`,
-      );
+        timeout: 60000,
+      },
+    );
 
-      let content = response.data.choices?.[0]?.message?.content?.trim() || "";
-      content = content
-        .replace(/^```(?:json)?\s*/i, "")
-        .replace(/\s*```$/i, "")
-        .trim();
-
-      return JSON.parse(content);
-    } catch (err: any) {
-      console.error("Ошибка генерации викторины:", err.message);
-      throw err;
-    }
+    let content = response.data.choices?.[0]?.message?.content?.trim() || "";
+    content = content
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+    return JSON.parse(content);
   }
 
   private async getWordExplanation(query: string) {
@@ -238,48 +217,37 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
 1–3 предложения.
 Если информации нет — пиши: "Нет достоверной информации".
 `;
+
     const userPrompt = `Дай краткое энциклопедическое объяснение по типу "*слово* - это...": ${query}`;
 
-    try {
-      const startTime = Date.now();
-      const response = await axios.post<any>(
-        "https://api.ai-mediator.ru/v1/chat/completions",
-        {
-          model: "gpt-5.2-chat-latest",
-          temperature: 0.2,
-          max_tokens: 300,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
+    const response = await axios.post(
+      "https://api.ai-mediator.ru/v1/chat/completions",
+      {
+        model: "gpt-5.2-chat-latest",
+        temperature: 0.2,
+        max_tokens: 300,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
         },
-        {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
-          },
-          timeout: 60000,
-        },
-      );
-      const endTime = Date.now();
-      console.log(
-        `✅ Энциклопедия: модель "${response.data.model}" отработала за ${
-          endTime - startTime
-        }ms`,
-      );
+        timeout: 60000,
+      },
+    );
 
-      let content =
-        response.data.choices?.[0]?.message?.content?.trim() ||
-        "Нет достоверной информации";
-      content = content
-        .replace(/^```.*?\n?/g, "")
-        .replace(/```$/g, "")
-        .trim();
-      return content;
-    } catch (err: any) {
-      console.error("Ошибка получения объяснения:", err.message);
-      return "Нет достоверной информации";
-    }
+    let content =
+      response.data.choices?.[0]?.message?.content?.trim() ||
+      "Нет достоверной информации";
+    content = content
+      .replace(/^```.*?\n?/g, "")
+      .replace(/```$/g, "")
+      .trim();
+    return content;
   }
 
   public getBot() {
