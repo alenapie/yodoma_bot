@@ -6,27 +6,29 @@ export class EdomaCommand {
     private bot: Bot<Context>,
     private pool: Pool,
   ) {
+    console.log("✅ EdomaCommand инициализирован"); // Проверка регистрации команды
     this.register();
   }
 
   private register() {
-    this.bot.on("message", async (ctx: Context) => {
-      if (!ctx.message?.text) return;
+    // Ловим только текстовые сообщения
+    this.bot.on("message:text", async (ctx: Context) => {
+      const text = ctx.message?.text?.trim();
+      const from = ctx.message?.from;
 
-      const from = ctx.message.from;
-      if (!from) return;
+      if (!text || !from) return;
 
-      const text = ctx.message.text.trim();
-      console.log("Получен текст:", text);
+      console.log("📩 EdomaCommand получил текст:", text);
 
+      // Регулярка для "едома кто ..."
       const match = text.match(/^едома кто\s+(.+)/i);
       if (!match) return;
 
       const query = match[1].trim();
-      console.log("Запрос 'едома кто':", query);
+      console.log("🔍 Запрос 'едома кто':", query);
 
       try {
-        // Сохраняем пользователя
+        // Сохраняем пользователя в базе
         await this.pool.query(
           `INSERT INTO participants(user_id, username, first_name, last_name)
            VALUES($1,$2,$3,$4) ON CONFLICT (user_id) DO NOTHING`,
@@ -37,6 +39,7 @@ export class EdomaCommand {
             from.last_name || null,
           ],
         );
+        console.log("💾 Пользователь сохранён:", from.id);
 
         // Выбираем случайного участника
         const { rows } = await this.pool.query(
@@ -44,6 +47,7 @@ export class EdomaCommand {
         );
 
         if (rows.length === 0) {
+          console.log("⚠️ Нет участников в базе");
           await ctx.reply("Пока нет участников 😔");
           return;
         }
@@ -52,11 +56,11 @@ export class EdomaCommand {
         const display = user.username
           ? `@${user.username}`
           : `${user.first_name || "Неизвестный"}`;
-        console.log("Выбран участник:", display);
+        console.log("🎯 Выбран участник:", display);
 
         await ctx.reply(`${query} - ${display}`);
       } catch (err: any) {
-        console.error("Ошибка команды 'едома кто':", err.message);
+        console.error("❌ Ошибка команды 'едома кто':", err.message);
         await ctx.reply("Не удалось выбрать участника 😔");
       }
     });
