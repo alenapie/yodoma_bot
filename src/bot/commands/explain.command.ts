@@ -7,7 +7,8 @@ export class ExplainCommand {
       const text = ctx.message?.text?.trim();
       if (!text) return;
 
-      const regexExplain = /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
+      const regexExplain =
+        /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
       const match = text.match(regexExplain);
       if (!match) return;
 
@@ -15,7 +16,9 @@ export class ExplainCommand {
       try {
         await ctx.replyWithChatAction("typing");
         const explanation = await this.getWordExplanation(query);
-        await ctx.reply(explanation.charAt(0).toUpperCase() + explanation.slice(1));
+        await ctx.reply(
+          explanation.charAt(0).toUpperCase() + explanation.slice(1),
+        );
       } catch (err: any) {
         console.error("Ошибка /explain:", err.message);
         await ctx.reply("Не удалось найти информацию 😔");
@@ -52,12 +55,16 @@ export class ExplainCommand {
           Authorization: `Bearer ${process.env.AI_MEDIATOR_API_KEY}`,
         },
         timeout: 60000,
-      }
+      },
     );
 
-    let content = response.data.choices?.[0]?.message?.content?.trim() || "Нет достоверной информации";
-    content = content.replace(/^```.*?\n?/g, "").replace(/```$/g, "").trim();
+    let content =
+      response.data.choices?.[0]?.message?.content?.trim() ||
+      "Нет достоверной информации";
+    content = content
+      .replace(/^```.*?\n?/g, "")
+      .replace(/```$/g, "")
+      .trim();
     return content;
   }
-}
 }
