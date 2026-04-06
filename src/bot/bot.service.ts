@@ -15,6 +15,8 @@ import { EdomaCommand } from "./commands/edoma.command";
 @Injectable()
 export class BotService implements OnModuleInit, OnApplicationBootstrap {
   private bot: Bot;
+  private explainCommand!: ExplainCommand;
+  private edomaCommand!: EdomaCommand;
   private allowedTopics = [
     "история",
     "география",
@@ -48,8 +50,24 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
   async onModuleInit() {
     // Регистрируем команды
     new QuizCommand(this.bot, this.pool, this.allowedTopics);
-    new ExplainCommand(this.bot);
-    new EdomaCommand(this.bot, this.pool);
+    this.explainCommand = new ExplainCommand();
+    this.edomaCommand = new EdomaCommand(this.pool);
+
+    // Единый роутер текстовых команд, чтобы не было конфликтов middleware
+    this.bot.on("message:text", async (ctx) => {
+      const text = ctx.message?.text?.trim();
+      if (!text) return;
+
+      if (this.explainCommand.isMatch(text)) {
+        await this.explainCommand.handle(ctx, text);
+        return;
+      }
+
+      if (this.edomaCommand.isMatch(text)) {
+        await this.edomaCommand.handle(ctx, text);
+        return;
+      }
+    });
   }
 
   async onApplicationBootstrap() {

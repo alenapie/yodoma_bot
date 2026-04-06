@@ -1,29 +1,27 @@
-import { Bot } from "grammy";
+import { Context } from "grammy";
 import axios from "axios";
 
 export class ExplainCommand {
-  constructor(bot: Bot) {
-    bot.on("message:text", async (ctx) => {
-      const text = ctx.message?.text?.trim();
-      if (!text) return;
+  private readonly regexExplain =
+    /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
 
-      const regexExplain =
-        /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
-      const match = text.match(regexExplain);
-      if (!match) return;
+  public isMatch(text: string) {
+    return this.regexExplain.test(text.trim());
+  }
 
-      const query = match[3].trim();
-      try {
-        await ctx.replyWithChatAction("typing");
-        const explanation = await this.getWordExplanation(query);
-        await ctx.reply(
-          explanation.charAt(0).toUpperCase() + explanation.slice(1),
-        );
-      } catch (err: any) {
-        console.error("Ошибка /explain:", err.message);
-        await ctx.reply("Не удалось найти информацию 😔");
-      }
-    });
+  public async handle(ctx: Context, text: string) {
+    const match = text.trim().match(this.regexExplain);
+    if (!match) return;
+
+    const query = match[3].trim();
+    try {
+      await ctx.replyWithChatAction("typing");
+      const explanation = await this.getWordExplanation(query);
+      await ctx.reply(explanation.charAt(0).toUpperCase() + explanation.slice(1));
+    } catch (err: any) {
+      console.error("Ошибка /explain:", err.message);
+      await ctx.reply("Не удалось найти информацию 😔");
+    }
   }
 
   private async getWordExplanation(query: string) {
