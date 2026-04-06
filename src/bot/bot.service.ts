@@ -4,13 +4,13 @@ import {
   OnModuleInit,
   OnApplicationBootstrap,
 } from "@nestjs/common";
-import { Bot, Context } from "grammy";
+import { Bot } from "grammy";
 import axios from "axios";
 import { Pool } from "pg";
 
 @Injectable()
 export class BotService implements OnModuleInit, OnApplicationBootstrap {
-  private bot: Bot<Context>;
+  private bot: Bot;
 
   private allowedTopics = [
     "история",
@@ -40,9 +40,11 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
       process.exit(1);
     }
 
-    this.bot = new Bot<Context>(process.env.TELEGRAM_TOKEN);
+    // Инициализация бота
+    this.bot = new Bot(process.env.TELEGRAM_TOKEN);
   }
 
+  // ──────────────── Nest Lifecycle Hooks ────────────────
   async onModuleInit() {
     this.registerCommands();
   }
@@ -51,33 +53,35 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
     await this.setupWebhook();
   }
 
+  // ──────────────── Регистрация команд ────────────────
   private registerCommands() {
+    // /quiz команда
     this.bot.command("quiz", async (ctx) => {
-      if (!ctx.message?.text) return;
-      const topic = ctx.message.text.slice("/quiz".length).trim();
+      const topic = ctx.message?.text?.slice("/quiz".length).trim() || "";
       try {
         const loading = await ctx.reply("Генерирую вопрос... ⏳");
         const quiz = await this.generateQuiz(topic);
         await ctx.replyWithPoll(quiz.question, quiz.options, {
           type: "quiz",
-          correct_option_ids: [quiz.correctIndex], // грамми 1.27+
+          correct_option_ids: [quiz.correctIndex], // <- массив
           explanation: quiz.explanation,
           is_anonymous: false,
         });
         await ctx.api
           .deleteMessage(ctx.chat.id, loading.message_id)
           .catch(() => {});
-      } catch (err) {
-        console.error("Ошибка /quiz:", err);
+      } catch (err: any) {
+        console.error("Ошибка /quiz:", err.message);
         await ctx.reply("Не удалось создать вопрос 😔");
       }
     });
 
+    // Обработка текста
     this.bot.on("message:text", async (ctx) => {
-      if (!ctx.message?.text) return;
-      const text = ctx.message.text.trim();
+      const text = ctx.message?.text?.trim();
+      if (!text) return;
 
-      // едома что/кто
+      // Едома что/кто
       const regexExplain =
         /^(едома|ёдома)\s+(что такое|кто такой|кто такая|что это)\s+(.+)/i;
       const matchExplain = text.match(regexExplain);
@@ -89,14 +93,13 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
           await ctx.reply(
             explanation.charAt(0).toUpperCase() + explanation.slice(1),
           );
-        } catch (err) {
-          console.error("Ошибка explain:", err);
+        } catch (err: any) {
+          console.error("Ошибка explain:", err.message);
           await ctx.reply("Не удалось найти информацию 😔");
         }
         return;
       }
 
-      // едома кто
       const regexWho = /^едома кто\s+(.+)/i;
       const matchWho = text.match(regexWho);
       if (matchWho) {
@@ -104,8 +107,7 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
         try {
           await this.pool.query(
             `INSERT INTO participants(user_id, username, first_name, last_name)
-             VALUES($1,$2,$3,$4)
-             ON CONFLICT (user_id) DO NOTHING`,
+             VALUES($1,$2,$3,$4) ON CONFLICT (user_id) DO NOTHING`,
             [
               ctx.message.from.id,
               ctx.message.from.username || null,
@@ -117,17 +119,13 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
           const { rows } = await this.pool.query(
             "SELECT username, first_name FROM participants ORDER BY RANDOM() LIMIT 1",
           );
-
-          if (rows.length === 0)
-            return await ctx.reply("Нет участников в базе 😔");
-
           const user = rows[0];
           const display = user.username
             ? `@${user.username}`
             : `${user.first_name || "Неизвестный"}`;
           await ctx.reply(`${query} - ${display}`);
-        } catch (err) {
-          console.error("Ошибка выбора участника:", err);
+        } catch (err: any) {
+          console.error("Ошибка выбора участника:", err.message);
           await ctx.reply("Не удалось выбрать участника 😔");
         }
         return;
@@ -137,8 +135,7 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
       try {
         await this.pool.query(
           `INSERT INTO participants(user_id, username, first_name, last_name)
-           VALUES($1,$2,$3,$4)
-           ON CONFLICT (user_id) DO NOTHING`,
+           VALUES($1,$2,$3,$4) ON CONFLICT (user_id) DO NOTHING`,
           [
             ctx.message.from.id,
             ctx.message.from.username || null,
@@ -146,24 +143,25 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
             ctx.message.from.last_name || null,
           ],
         );
-      } catch (err) {
-        console.error("Ошибка добавления участника:", err);
+      } catch (err: any) {
+        console.error("Ошибка добавления участника:", err.message);
       }
     });
   }
 
+  // ──────────────── Настройка вебхука ────────────────
   private async setupWebhook() {
     try {
       await this.bot.api.deleteWebhook({ drop_pending_updates: true });
       const url = `${process.env.APP_URL}/bot/${process.env.TELEGRAM_TOKEN}`;
       await this.bot.api.setWebhook(url);
       console.log("✅ Webhook установлен:", url);
-      console.log("✅ Webhook установлен:", url);
-    } catch (err) {
-      console.error("❌ Ошибка установки webhook:", err);
+    } catch (err: any) {
+      console.error("❌ Ошибка установки webhook:", err.message);
     }
   }
 
+  // ──────────────── Генерация викторины ────────────────
   private async generateQuiz(topic: string) {
     if (!topic.trim())
       topic =
@@ -200,7 +198,7 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
       },
     );
 
-    let content = response.data.choices?.[0]?.message?.content?.trim() || "";
+    let content = response.data.choices?.[0]?.message?.content?.trim() || "{}";
     content = content
       .replace(/^```(?:json)?\s*/i, "")
       .replace(/\s*```$/i, "")
@@ -208,6 +206,7 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
     return JSON.parse(content);
   }
 
+  // ──────────────── Энциклопедия ────────────────
   private async getWordExplanation(query: string) {
     const systemPrompt = `
 Ты — энциклопедический справочник.
@@ -251,6 +250,7 @@ export class BotService implements OnModuleInit, OnApplicationBootstrap {
     return content;
   }
 
+  // ──────────────── Получение экземпляра бота ────────────────
   public getBot() {
     return this.bot;
   }
